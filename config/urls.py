@@ -21,11 +21,14 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # API REST (legacy/fallback)
     path('api/v1/auth/', include('src.adapters.primary.rest_api.auth.urls')),
     path('api/v1/users/', include('src.adapters.primary.rest_api.users.urls')),
     path('api/v1/practices/', include('src.adapters.primary.rest_api.practices.urls')),
     path('api/v1/companies/', include('src.adapters.primary.rest_api.companies.urls')),
     path('api/v1/reports/', include('src.adapters.primary.rest_api.reports.urls')),
+    # API GraphQL (principal)
+    path('api/', include('src.adapters.primary.graphql_api.urls')),
 ]
 
 # Serve media files in development

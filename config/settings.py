@@ -40,11 +40,14 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
+    'graphene_django',
+    'django_filters',
     'corsheaders',
     'django_extensions',
 ]
 
 LOCAL_APPS = [
+    'src.adapters.primary.graphql_api',
     'src.adapters.primary.rest_api',
     'src.adapters.secondary.database',
     'src.infrastructure.security',
@@ -291,6 +294,24 @@ LOGGING = {
             'propagate': False,
         },
     },
+}
+
+# GraphQL Configuration
+GRAPHENE = {
+    'SCHEMA': 'src.adapters.primary.graphql_api.schema.schema',
+    'MIDDLEWARE': [
+        'graphql_jwt.middleware.JSONWebTokenMiddleware',
+    ],
+}
+
+# GraphQL JWT Configuration
+GRAPHQL_JWT = {
+    'JWT_ALGORITHM': 'HS256',
+    'JWT_SECRET_KEY': config('JWT_SECRET_KEY', default=SECRET_KEY),
+    'JWT_VERIFY_EXPIRATION': True,
+    'JWT_LONG_RUNNING_REFRESH_TOKEN': True,
+    'JWT_EXPIRATION_DELTA': timedelta(minutes=60),
+    'JWT_REFRESH_EXPIRATION_DELTA': timedelta(days=7),
 }
 
 # Create logs directory
