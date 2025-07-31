@@ -1,0 +1,11 @@
+-r base.txt
+
+# Production server
+gunicorn==22.0.0
+whitenoise==6.7.0
+
+# Monitoring
+newrelic==9.13.0
+
+# Performance
+django-cachalot==2.6.3

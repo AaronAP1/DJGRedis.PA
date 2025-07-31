@@ -1,0 +1,141 @@
+version: '3.8'
+
+services:
+  # Base de datos PostgreSQL
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: gestion_practicas
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis para cache y Celery
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB para logs y métricas
+  mongodb:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+      MONGO_INITDB_DATABASE: gestion_practicas_logs
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+  # Elasticsearch para búsqueda
+  elasticsearch:
+    image: elasticsearch:8.8.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+
+  # Aplicación Django
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+      - media_volume:/app/media
+      - static_volume:/app/staticfiles
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DEBUG=True
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/gestion_practicas
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - MONGODB_URL=mongodb://root:rootpassword@mongodb:27017/gestion_practicas_logs?authSource=admin
+      - ELASTICSEARCH_HOST=elasticsearch:9200
+
+  # Celery Worker
+  celery:
+    build: .
+    command: celery -A config worker -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DEBUG=True
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/gestion_practicas
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+
+  # Celery Beat (scheduler)
+  celery-beat:
+    build: .
+    command: celery -A config beat -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DEBUG=True
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/gestion_practicas
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+
+  # Flower (monitoreo de Celery)
+  flower:
+    build: .
+    command: celery -A config flower
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+
+  # Nginx (producción)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - static_volume:/var/www/static
+      - media_volume:/var/www/media
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
+  redis_data:
+  mongodb_data:
+  elasticsearch_data:
+  media_volume:
+  static_volume:
