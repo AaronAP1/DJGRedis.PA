@@ -1,0 +1,174 @@
+{
+  "info": {
+    "_postman_id": "c2d3f4a9-1234-4e2e-b57f-abcde1234567",
+    "name": "DJGRedis.PA - GraphQL & Users Import/Export",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "GraphQL - Login (username + password + recaptcha v2)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": { "raw": "{{baseUrl}}/api/graphql/", "host": ["{{baseUrl}}"], "path": ["api","graphql"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operationName\": \"Login\",\n  \"query\": \"mutation Login($username:String!,$password:String!,$recaptchaToken:String!){ tokenAuth(username:$username, password:$password, recaptchaToken:$recaptchaToken){ success message token refreshToken user { id email username role isActive } } }\",\n  \"variables\": {\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\",\n    \"recaptchaToken\": \"{{recaptchaToken}}\"\n  }\n}"
+        }
+      }
+    },
+    {
+      "name": "GraphQL - Stable Refresh (no rota refresh)",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "url": { "raw": "{{baseUrl}}/api/graphql/", "host": ["{{baseUrl}}"], "path": ["api","graphql","/"] },
+        "body": { "mode": "raw", "raw": "{\n  \"query\": \"mutation { stableRefresh { token refreshToken message } }\"\n}" }
+      }
+    },
+    {
+      "name": "GraphQL - Forgot Password (dev: devuelve code)",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "url": { "raw": "{{baseUrl}}/api/graphql/", "host": ["{{baseUrl}}"], "path": ["api","graphql","/"] },
+        "body": { "mode": "raw", "raw": "{\n  \"operationName\": \"Forgot\",\n  \"query\": \"mutation Forgot($email:String!,$recaptchaToken:String!){ forgotPassword(email:$email, recaptchaToken:$recaptchaToken){ success message code } }\",\n  \"variables\": { \n    \"email\": \"{{email}}\",\n    \"recaptchaToken\": \"{{recaptchaToken}}\"\n  }\n}" }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "try {",
+              "  var json = pm.response.json();",
+              "  var code = json && json.data && json.data.forgotPassword && json.data.forgotPassword.code;",
+              "  if (code) { pm.environment.set('resetCode', code); }",
+              "} catch(e) {}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "GraphQL - Reset Password with Code",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "url": { "raw": "{{baseUrl}}/api/graphql/", "host": ["{{baseUrl}}"], "path": ["api","graphql","/"] },
+        "body": { "mode": "raw", "raw": "{\n  \"operationName\": \"Reset\",\n  \"query\": \"mutation Reset($email:String!,$code:String!,$pwd:String!,$conf:String!,$recaptchaToken:String!){ resetPasswordWithCode(email:$email, code:$code, newPassword:$pwd, confirmPassword:$conf, recaptchaToken:$recaptchaToken){ success message } }\",\n  \"variables\": {\n    \"email\": \"{{email}}\",\n    \"code\": \"{{resetCode}}\",\n    \"pwd\": \"{{newPassword}}\",\n    \"conf\": \"{{newPassword}}\",\n    \"recaptchaToken\": \"{{recaptchaToken}}\"\n  }\n}" }
+      }
+    },
+    {
+      "name": "GraphQL - Logout",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "url": { "raw": "{{baseUrl}}/api/graphql/", "host": ["{{baseUrl}}"], "path": ["api","graphql","/"] },
+        "body": { "mode": "raw", "raw": "{\n  \"query\": \"mutation { logout { success message } }\"\n}" }
+      }
+    },
+    {
+      "name": "GraphQL - Login FALLIDO (usa Runner 30x para bloquear)",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "url": { "raw": "{{baseUrl}}/api/graphql/", "host": ["{{baseUrl}}"], "path": ["api","graphql","/"] },
+        "body": { "mode": "raw", "raw": "{\n  \"operationName\": \"Login\",\n  \"query\": \"mutation Login($username:String!,$password:String!,$recaptchaToken:String!){ tokenAuth(username:$username, password:$password, recaptchaToken:$recaptchaToken){ success message } }\",\n  \"variables\": {\n    \"username\": \"{{username}}\",\n    \"password\": \"incorrecta\",\n    \"recaptchaToken\": \"{{recaptchaToken}}\"\n  }\n}" }
+      }
+    },
+    {
+      "name": "REST - Users Import Template (xlsx)",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/api/v1/users/import/template.xlsx", "host": ["{{baseUrl}}"], "path": ["api","v1","users","import","template.xlsx"] }
+      }
+    },
+    {
+      "name": "REST - Users Import Preview (xlsx)",
+      "request": {
+        "method": "POST",
+        "header": [ ],
+        "url": { "raw": "{{baseUrl}}/api/v1/users/import/preview", "host": ["{{baseUrl}}"], "path": ["api","v1","users","import","preview"] },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": [] }
+          ]
+        }
+      }
+    },
+    {
+      "name": "REST - Users Import Confirm (xlsx)",
+      "request": {
+        "method": "POST",
+        "header": [ ],
+        "url": { "raw": "{{baseUrl}}/api/v1/users/import/confirm", "host": ["{{baseUrl}}"], "path": ["api","v1","users","import","confirm"] },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": [] },
+            { "key": "send_email", "type": "text", "value": "false" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "REST - Users Export (xlsx)",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/api/v1/users/export.xlsx", "host": ["{{baseUrl}}"], "path": ["api","v1","users","export.xlsx"] }
+      }
+    },
+    {
+      "name": "GraphQL - Login (ES fields, sin tokens)",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "url": { "raw": "{{baseUrl}}/api/graphql/", "host": ["{{baseUrl}}"], "path": ["api","graphql","/"] },
+        "body": { "mode": "raw", "raw": "{\n  \"operationName\": \"Login\",\n  \"query\": \"mutation Login($username:String!,$password:String!,$recaptchaToken:String!){ tokenAuth(username:$username, password:$password, recaptchaToken:$recaptchaToken){ success message user { id email role nombreCompleto nombres apellidos isActive photoUrl } } }\",\n  \"variables\": {\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\",\n    \"recaptchaToken\": \"{{recaptchaToken}}\"\n  }\n}" }
+      }
+    },
+    {
+      "name": "GraphQL - Update My Profile",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "url": { "raw": "{{baseUrl}}/api/graphql/", "host": ["{{baseUrl}}"], "path": ["api","graphql","/"] },
+        "body": { "mode": "raw", "raw": "{\n  \"operationName\": \"UpdateMyProfile\",\n  \"query\": \"mutation UpdateMyProfile($input: ProfileInput!){ updateMyProfile(input:$input){ success message user { id email role username nombreCompleto nombres apellidos photoUrl } } }\",\n  \"variables\": {\n    \"input\": {\n      \"firstName\": \"{{firstName}}\",\n      \"lastName\": \"{{lastName}}\",\n      \"username\": \"{{newUsername}}\"\n    }\n  }\n}" }
+      }
+    },
+    {
+      "name": "GraphQL - Upload My Photo (base64)",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "url": { "raw": "{{baseUrl}}/api/graphql/", "host": ["{{baseUrl}}"], "path": ["api","graphql","/"] },
+        "body": { "mode": "raw", "raw": "{\n  \"operationName\": \"UploadPhoto\",\n  \"query\": \"mutation UploadPhoto($b64:String!){ uploadMyPhotoBase64(photoBase64:$b64){ success message photoUrl } }\",\n  \"variables\": {\n    \"b64\": \"{{photoBase64}}\"\n  }\n}" }
+      }
+    },
+    {
+      "name": "GraphQL - Me (usa cookies HttpOnly)",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "url": { "raw": "{{baseUrl}}/api/graphql/", "host": ["{{baseUrl}}"], "path": ["api","graphql","/"] },
+        "body": { "mode": "raw", "raw": "{\n  \"query\": \"query { me { id email role username nombreCompleto nombres apellidos photoUrl lastLogin } }\"\n}" }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8000" },
+    { "key": "username", "value": "cristian.lara" },
+    { "key": "password", "value": "2021000001" },
+    { "key": "email", "value": "admin@upeu.edu.pe" },
+    { "key": "recaptchaToken", "value": "" },
+    { "key": "newPassword", "value": "NuevoPass!123" },
+    { "key": "firstName", "value": "Admin" },
+    { "key": "lastName", "value": "General" },
+    { "key": "newUsername", "value": "admin.general" },
+    { "key": "photoBase64", "value": "" }
+  ]
+}

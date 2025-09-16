@@ -18,6 +18,22 @@ class CustomUserManager(BaseUserManager):
             raise ValueError('El email es obligatorio')
         
         email = self.normalize_email(email)
+        # Generar/normalizar username si no se proporcionó
+        username = extra_fields.get('username')
+        if not username:
+            try:
+                username = email.split('@')[0]
+            except Exception:
+                username = email
+        base = username.strip().lower().replace(' ', '.')
+        candidate = base
+        i = 0
+        # Asegurar unicidad
+        while self.model.objects.filter(username__iexact=candidate).exists():
+            i += 1
+            candidate = f"{base}{i}"
+        extra_fields['username'] = candidate
+
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -50,6 +66,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     email = models.EmailField('Email', unique=True)
+    username = models.CharField('Usuario', max_length=150, unique=True, blank=True, null=True)
     first_name = models.CharField('Nombres', max_length=150)
     last_name = models.CharField('Apellidos', max_length=150)
     role = models.CharField('Rol', max_length=20, choices=ROLE_CHOICES)
@@ -59,6 +76,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     last_login = models.DateTimeField('Último acceso', null=True, blank=True)
     created_at = models.DateTimeField('Creado en', auto_now_add=True)
     updated_at = models.DateTimeField('Actualizado en', auto_now=True)
+    photo = models.ImageField('Foto de perfil', upload_to='users/photos/%Y/%m/', blank=True, null=True)
 
     objects = CustomUserManager()
 
@@ -71,6 +89,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         verbose_name_plural = 'Usuarios'
         indexes = [
             models.Index(fields=['email']),
+            models.Index(fields=['username']),
             models.Index(fields=['role']),
             models.Index(fields=['is_active']),
         ]
@@ -124,8 +143,8 @@ class Student(models.Model):
         unique=True,
         validators=[RegexValidator(r'^20\d{8}$', 'Formato inválido. Ej: 2021001234')]
     )
-    documento_tipo = models.CharField('Tipo de documento', max_length=10, choices=DOCUMENTO_CHOICES)
-    documento_numero = models.CharField('Número de documento', max_length=20)
+    documento_tipo = models.CharField('Tipo de documento', max_length=10, choices=DOCUMENTO_CHOICES, blank=True, null=True)
+    documento_numero = models.CharField('Número de documento', max_length=20, blank=True, null=True)
     telefono = models.CharField('Teléfono', max_length=15, blank=True, null=True)
     direccion = models.TextField('Dirección', blank=True, null=True)
     carrera = models.CharField('Carrera', max_length=100, blank=True, null=True)

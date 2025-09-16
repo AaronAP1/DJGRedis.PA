@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GraphiQL Quickstart</title>
+  <style>
+    :root { --bg:#0f172a; --card:#111827; --fg:#e5e7eb; --muted:#94a3b8; --accent:#22d3ee; }
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+    .container { max-width: 1000px; margin: 30px auto; padding: 0 16px; }
+    h1 { font-size: 22px; margin: 0 0 10px; }
+    p { color: var(--muted); margin: 6px 0 14px; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
+    .card { background: var(--card); border-radius: 10px; padding: 14px; grid-column: span 12; }
+    @media (min-width: 860px) { .card.half { grid-column: span 6; } }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
+    .row + .row { margin-top: 8px; }
+    label { width: 160px; font-size: 13px; color: var(--muted); }
+    input, select { flex: 1 1 260px; background: #0b1220; color: var(--fg); border: 1px solid #1f2937; border-radius: 8px; padding: 8px 10px; outline: none; }
+    button, a.btn { background: #0ea5e9; color: white; border: 0; padding: 8px 12px; border-radius: 8px; text-decoration: none; cursor: pointer; font-weight: 600; }
+    button.secondary { background: #334155; }
+    code { background:#0b1220; padding:2px 6px; border-radius:6px; }
+    small.note { color:#a1a1aa }
+    .hint { color:#a7f3d0 }
+    .mt { margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>GraphiQL Quickstart</h1>
+    <p>Atajos para abrir <code>/api/graphql/</code> con consultas pre-cargadas. Recomendado para desarrollo local.</p>
+
+    <div class="card">
+      <div class="row">
+        <label>Base URL</label>
+        <input id="baseUrl" value="http://127.0.0.1:8000" />
+      </div>
+
+      <div class="row"><small class="note">Debe apuntar al host donde corre Django. La consola GraphiQL está en <code>/api/graphql/</code>.</small></div>
+    </div>
+
+    <div class="grid mt">
+      <div class="card half">
+        <h3>Login (cookies HttpOnly)</h3>
+        <div class="row">
+          <label>Username o Email</label>
+          <input id="loginUser" value="admin.general" />
+        </div>
+        <div class="row">
+          <label>Password</label>
+          <input id="loginPass" value="Admin123!" />
+        </div>
+        <div class="row">
+          <label>reCAPTCHA token</label>
+          <input id="loginRecaptcha" placeholder="token v2" />
+        </div>
+        <div class="row">
+          <button id="btnLogin">Abrir en GraphiQL</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>Mi perfil (me)</h3>
+        <p class="hint">Requiere que hayas hecho login (cookies JWT presentes).</p>
+        <div class="row">
+          <button id="btnMe">Abrir en GraphiQL</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>Update My Profile</h3>
+        <div class="row">
+          <label>firstName</label>
+          <input id="firstName" value="Admin" />
+        </div>
+        <div class="row">
+          <label>lastName</label>
+          <input id="lastName" value="General" />
+        </div>
+        <div class="row">
+          <label>username</label>
+          <input id="username" value="admin.general" />
+        </div>
+        <div class="row">
+          <button id="btnUpd">Abrir en GraphiQL</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>Upload Photo (URL)</h3>
+        <p class="hint">Se descargará la imagen desde la URL y se guardará como foto de perfil.</p>
+        <div class="row">
+          <label>photoUrl</label>
+          <input id="photoUrl" placeholder="https://.../mi-foto.jpg" />
+        </div>
+        <div class="row">
+          <button id="btnPhotoUrl">Abrir en GraphiQL</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>Stable Refresh</h3>
+        <p class="hint">Usa el refresh de cookie para obtener nuevo access sin rotar el refresh.</p>
+        <div class="row">
+          <button id="btnStable">Abrir en GraphiQL</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>Logout</h3>
+        <div class="row">
+          <button id="btnLogout">Abrir en GraphiQL</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>Forgot Password (envía código)</h3>
+        <div class="row">
+          <label>Email</label>
+          <input id="fpEmail" value="admin@upeu.edu.pe" />
+        </div>
+        <div class="row">
+          <label>reCAPTCHA token</label>
+          <input id="fpRecaptcha" placeholder="token v2" />
+        </div>
+        <div class="row">
+          <button id="btnForgot">Abrir en GraphiQL</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>Reset Password con código</h3>
+        <div class="row">
+          <label>Email</label>
+          <input id="rpEmail" value="admin@upeu.edu.pe" />
+        </div>
+        <div class="row">
+          <label>Código</label>
+          <input id="rpCode" placeholder="123456" />
+        </div>
+        <div class="row">
+          <label>Nueva contraseña</label>
+          <input id="rpPwd" value="NuevoPass!123" />
+        </div>
+        <div class="row">
+          <label>Confirmar nueva</label>
+          <input id="rpConf" value="NuevoPass!123" />
+        </div>
+        <div class="row">
+          <label>reCAPTCHA token</label>
+          <input id="rpRecaptcha" placeholder="token v2" />
+        </div>
+        <div class="row">
+          <button id="btnReset">Abrir en GraphiQL</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>Cambiar contraseña (con sesión)</h3>
+        <div class="row">
+          <label>Actual</label>
+          <input id="cpCur" value="Admin123!" />
+        </div>
+        <div class="row">
+          <label>Nueva</label>
+          <input id="cpNew" value="NuevoPass!123" />
+        </div>
+        <div class="row">
+          <label>Confirmar</label>
+          <input id="cpConf" value="NuevoPass!123" />
+        </div>
+        <div class="row">
+          <button id="btnChangePwd">Abrir en GraphiQL</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>Crear usuario (manual, ADMIN)</h3>
+        <div class="row">
+          <label>Email</label>
+          <input id="cuEmail" value="nuevo.usuario@upeu.edu.pe" />
+        </div>
+        <div class="row">
+          <label>Username</label>
+          <input id="cuUsername" value="nuevo.usuario" />
+        </div>
+        <div class="row">
+          <label>firstName</label>
+          <input id="cuFirst" value="Nombre" />
+        </div>
+        <div class="row">
+          <label>lastName</label>
+          <input id="cuLast" value="Apellido" />
+        </div>
+        <div class="row">
+          <label>role</label>
+          <select id="cuRole">
+            <option>PRACTICANTE</option>
+            <option>SUPERVISOR</option>
+            <option>COORDINADOR</option>
+            <option>SECRETARIA</option>
+            <option>ADMINISTRADOR</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>codigoEstudiante</label>
+          <input id="cuCode" placeholder="2021001234" />
+        </div>
+        <div class="row">
+          <label>password</label>
+          <input id="cuPwd" value="Pass!12345" />
+        </div>
+        <div class="row">
+          <label>isActive</label>
+          <select id="cuActive"><option value="true" selected>True</option><option value="false">False</option></select>
+        </div>
+        <div class="row">
+          <button id="btnCreateUser">Abrir en GraphiQL</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>Editar usuario (ADMIN)</h3>
+        <div class="row">
+          <label>userId</label>
+          <input id="uuId" placeholder="ID (GraphQL global o UUID)" />
+        </div>
+        <div class="row">
+          <label>email</label>
+          <input id="uuEmail" />
+        </div>
+        <div class="row">
+          <label>username</label>
+          <input id="uuUsername" />
+        </div>
+        <div class="row">
+          <label>firstName</label>
+          <input id="uuFirst" />
+        </div>
+        <div class="row">
+          <label>lastName</label>
+          <input id="uuLast" />
+        </div>
+        <div class="row">
+          <label>role</label>
+          <select id="uuRole">
+            <option value="">(no cambiar)</option>
+            <option>PRACTICANTE</option>
+            <option>SUPERVISOR</option>
+            <option>COORDINADOR</option>
+            <option>SECRETARIA</option>
+            <option>ADMINISTRADOR</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>isActive</label>
+          <select id="uuActive">
+            <option value="">(no cambiar)</option>
+            <option value="true">True</option>
+            <option value="false">False</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>password</label>
+          <input id="uuPwd" placeholder="(opcional)" />
+        </div>
+        <div class="row">
+          <button id="btnUpdateUser">Abrir en GraphiQL</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>Eliminar usuario (ADMIN)</h3>
+        <div class="row">
+          <label>userId</label>
+          <input id="duId" placeholder="ID (GraphQL global o UUID)" />
+        </div>
+        <div class="row">
+          <button id="btnDeleteUser">Abrir en GraphiQL</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Listar usuarios (ADMIN)</h3>
+        <p class="hint">Muestra usuarios ordenados por fecha de creación (asc) y oculta tu propio usuario.</p>
+        <div class="row">
+          <button id="btnUsers">Abrir en GraphiQL</button>
+          <small class="note">Requiere sesión de administrador.</small>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Importar / Exportar usuarios (REST)</h3>
+        <p class="hint">Estas operaciones son solo <b>ADMIN</b> y se prueban en Swagger o Postman.</p>
+        <div class="row">
+          <a class="btn" href="http://localhost:8000/api/docs/" target="_blank">Abrir Swagger</a>
+          <small class="note">Si entras desde este navegador, REST aceptará la cookie JWT sin Authorization.</small>
+        </div>
+        <div class="row">
+          <ul>
+            <li>Descargar plantilla: <code>GET /api/v1/users/import/template.xlsx</code></li>
+            <li>Vista previa importación: <code>POST /api/v1/users/import/preview</code> (form-data: file)</li>
+            <li>Confirmar importación: <code>POST /api/v1/users/import/confirm</code> (file, send_email)</li>
+            <li>Exportar: <code>GET /api/v1/users/export.xlsx</code> (filtros opcionales)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+
+  </div>
+
+  <script>
+    const qsUrl = (base, query, variables, opName) => {
+      const url = new URL(base.replace(/\/$/, '') + '/api/graphql/');
+      url.searchParams.set('query', query);
+      if (variables) url.searchParams.set('variables', JSON.stringify(variables));
+      if (opName) url.searchParams.set('operationName', opName);
+      // Pide al servidor que prellene el editor (query/variables/operationName)
+      url.searchParams.set('prefill', '1');
+      return url.toString();
+    };
+
+    // Abre o reutiliza una pestaña del navegador por operación (nombre único)
+    const openNamed = (name, url) => window.open(url, name);
+    const openNew = (u) => openNamed('_blank', u);
+
+    const qLogin = `mutation Login($username:String!, $password:String!, $recaptchaToken:String!) {\n  tokenAuth(username:$username, password:$password, recaptchaToken:$recaptchaToken) {\n    success\n    message\n    user { id email role username nombreCompleto nombres apellidos photoUrl isActive lastLogin }\n  }\n}`;
+
+    const qMe = `query {\n  me { id email role username nombreCompleto nombres apellidos photoUrl lastLogin }\n}`;
+
+    const qUpd = `mutation UpdateMyProfile($input: ProfileInput!) {\n  updateMyProfile(input:$input) { success message user { id username nombres apellidos nombreCompleto photoUrl } }\n}`;
+
+    const qPhotoUrl = `mutation UploadPhotoUrl($url:String!){\n  uploadMyPhotoUrl(photoUrl:$url){ success message photoUrl }\n}`;
+
+    const qStable = `mutation { stableRefresh { token refreshToken message } }`;
+
+    const qLogout = `mutation { logout { success message } }`;
+    const qUsers = `query {\n  users {\n    edges {\n      node { id email username role isActive createdAt nombreCompleto }\n    }\n  }\n}`;
+
+    // Nuevas operaciones
+    const qForgot = `mutation Forgot($email:String!, $recaptchaToken:String!){\n  forgotPassword(email:$email, recaptchaToken:$recaptchaToken){ success message code }\n}`;
+    const qReset = `mutation Reset($email:String!, $code:String!, $pwd:String!, $conf:String!, $recaptchaToken:String!){\n  resetPasswordWithCode(email:$email, code:$code, newPassword:$pwd, confirmPassword:$conf, recaptchaToken:$recaptchaToken){ success message }\n}`;
+    const qChange = `mutation ChangePwd($current:String!, $new:String!, $confirm:String!){\n  changePassword(currentPassword:$current, newPassword:$new, confirmPassword:$confirm){ success message }\n}`;
+    const qCreate = `mutation CreateUser($input: UserInput!){\n  createUser(input:$input){ success message user { id email role username nombres apellidos } }\n}`;
+    const qUpdateUser = `mutation UpdateUser($id:ID!, $input: UserInput!){\n  updateUser(id:$id, input:$input){ success message user { id email username role isActive } }\n}`;
+    const qDeleteUser = `mutation DeleteUser($id:ID!){\n  deleteUser(id:$id){ success message }\n}`;
+
+    const $ = (id) => document.getElementById(id);
+
+    $('btnLogin').onclick = () => {
+      const base = $('baseUrl').value;
+      const variables = {
+        username: $('loginUser').value,
+        password: $('loginPass').value,
+        recaptchaToken: $('loginRecaptcha').value
+      };
+      if (!variables.recaptchaToken) { alert('Ingresa el token de reCAPTCHA (v2)'); return; }
+      openNamed('GraphiQL-Login', qsUrl(base, qLogin, variables, 'Login'));
+    };
+
+    $('btnMe').onclick = () => {
+      const base = $('baseUrl').value;
+      openNamed('GraphiQL-Me', qsUrl(base, qMe));
+    };
+
+    $('btnUpd').onclick = () => {
+      const base = $('baseUrl').value;
+      const variables = { input: { firstName: $('firstName').value, lastName: $('lastName').value, username: $('username').value } };
+      openNamed('GraphiQL-UpdateMyProfile', qsUrl(base, qUpd, variables, 'UpdateMyProfile'));
+    };
+
+    $('btnPhotoUrl').onclick = () => {
+      const base = $('baseUrl').value;
+      const url = $('photoUrl').value;
+      if (!url) { alert('Ingresa una URL de imagen'); return; }
+      const variables = { url };
+      openNamed('GraphiQL-UploadPhotoUrl', qsUrl(base, qPhotoUrl, variables, 'UploadPhotoUrl'));
+    };
+
+    $('btnStable').onclick = () => {
+      const base = $('baseUrl').value;
+      openNamed('GraphiQL-StableRefresh', qsUrl(base, qStable));
+    };
+
+    $('btnLogout').onclick = () => {
+      const base = $('baseUrl').value;
+      openNamed('GraphiQL-Logout', qsUrl(base, qLogout));
+    };
+
+    // Forgot Password
+    $('btnForgot').onclick = () => {
+      const base = $('baseUrl').value;
+      const variables = { email: $('fpEmail').value, recaptchaToken: $('fpRecaptcha').value };
+      if (!variables.recaptchaToken) { alert('Ingresa el token de reCAPTCHA (v2)'); return; }
+      openNamed('GraphiQL-Forgot', qsUrl(base, qForgot, variables, 'Forgot'));
+    };
+
+    // Reset Password
+    $('btnReset').onclick = () => {
+      const base = $('baseUrl').value;
+      const variables = { email: $('rpEmail').value, code: $('rpCode').value, pwd: $('rpPwd').value, conf: $('rpConf').value, recaptchaToken: $('rpRecaptcha').value };
+      if (!variables.recaptchaToken) { alert('Ingresa el token de reCAPTCHA (v2)'); return; }
+      openNamed('GraphiQL-Reset', qsUrl(base, qReset, variables, 'Reset'));
+    };
+
+    // Change Password
+    $('btnChangePwd').onclick = () => {
+      const base = $('baseUrl').value;
+      const variables = { current: $('cpCur').value, new: $('cpNew').value, confirm: $('cpConf').value };
+      openNamed('GraphiQL-ChangePwd', qsUrl(base, qChange, variables, 'ChangePwd'));
+    };
+
+    // Create User
+    $('btnCreateUser').onclick = () => {
+      const base = $('baseUrl').value;
+      const role = $('cuRole').value;
+      const code = $('cuCode').value.trim();
+      if (role === 'PRACTICANTE' && !code) { alert('codigoEstudiante es obligatorio para PRACTICANTE'); return; }
+      const isActive = $('cuActive').value === 'true';
+      const input = { email: $('cuEmail').value, username: $('cuUsername').value, firstName: $('cuFirst').value, lastName: $('cuLast').value, role, password: $('cuPwd').value, isActive };
+      if (role === 'PRACTICANTE') input.codigoEstudiante = code;
+      const variables = { input };
+      openNamed('GraphiQL-CreateUser', qsUrl(base, qCreate, variables, 'CreateUser'));
+    };
+
+    // Listar usuarios
+    $('btnUsers').onclick = () => {
+      const base = $('baseUrl').value;
+      openNamed('GraphiQL-Users', qsUrl(base, qUsers));
+    };
+  </script>
+</body>
+</html>

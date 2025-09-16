@@ -4,6 +4,7 @@ djangorestframework==3.15.1
 djangorestframework-simplejwt==5.3.0
 django-cors-headers==4.3.1
 django-extensions==3.2.3
+django-filter==24.3
 
 # Database
 psycopg2-binary==2.9.9
@@ -27,6 +28,7 @@ django-csp==3.8
 django-cryptography==1.1
 bleach==6.1.0
 python-clamd==3.2.0
+django-graphql-jwt==0.4.0
 
 # Search
 elasticsearch==8.14.0
@@ -41,6 +43,7 @@ structlog==24.2.0
 graphene-django==3.2.2
 channels==4.1.0
 channels-redis==4.2.0
+requests==2.32.3
 
 # Environment
 python-decouple==3.8
@@ -48,6 +51,7 @@ python-decouple==3.8
 # File handling
 Pillow==10.4.0
 python-magic==0.4.27
+openpyxl==3.1.5
 
 # Utilities
 ipython==8.26.0

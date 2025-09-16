@@ -3,21 +3,49 @@ Mutations GraphQL para el sistema de gestión de prácticas profesionales.
 """
 
 import graphene
-from graphql_jwt.decorators import login_required
+import graphql_jwt
+try:
+    from graphql_jwt.decorators import login_required, allow_any  # type: ignore
+except Exception:  # pragma: no cover
+    # Algunas versiones de graphql_jwt no exponen allow_any; definimos un no-op.
+    from graphql_jwt.decorators import login_required  # type: ignore
+
+    def allow_any(func):  # nosec - decorador no-op para permitir acceso anónimo
+        return func
 from django.contrib.auth import get_user_model
+from graphql_relay import from_global_id
 from django.db import transaction
 from django.utils import timezone
+from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
+from django.utils.encoding import force_bytes, force_str
+from django.contrib.auth import authenticate
+from django.core.cache import cache
+from django.core.files.base import ContentFile
+import secrets
+import logging
+import base64
+import imghdr
+import time
+import requests
+from urllib.parse import urlparse
 
 from .types import (
     UserType, StudentType, CompanyType, SupervisorType,
     PracticeType, DocumentType, NotificationType,
-    UserInput, StudentInput, CompanyInput, SupervisorInput,
-    PracticeInput, DocumentInput
+    UserInput, ProfileInput, StudentInput, CompanyInput,
+    PracticeInput
 )
 from src.adapters.secondary.database.models import (
     Student, Company, Supervisor, Practice, Document, Notification
 )
 from src.domain.enums import UserRole, PracticeStatus, CompanyStatus
+from src.infrastructure.security.recaptcha import verify_recaptcha
+try:
+    from graphql_jwt.refresh_token.models import RefreshToken as GQLRefreshToken
+except Exception:  # pragma: no cover
+    GQLRefreshToken = None
 
 User = get_user_model()
 
@@ -37,19 +65,65 @@ class CreateUser(graphene.Mutation):
     @login_required
     def mutate(root, info, input):
         user = info.context.user
-        if user.role not in ['COORDINADOR', 'ADMINISTRADOR']:
-            return CreateUser(success=False, message="Sin permisos para crear usuarios")
+        if user.role != 'ADMINISTRADOR':
+            return CreateUser(success=False, message="Solo ADMINISTRADOR puede crear usuarios")
         
         try:
             with transaction.atomic():
+                # Validar dominio de email permitido
+                try:
+                    domain = input.email.split('@')[1].lower()
+                except Exception:
+                    domain = ''
+                allowed = [d.lower() for d in getattr(settings, 'ALLOWED_EMAIL_DOMAINS', [])]
+                if allowed and domain not in allowed:
+                    return CreateUser(success=False, message='Dominio de email no permitido')
+
+                # Validar duplicados (email, username)
+                if User.objects.filter(email__iexact=input.email).exists():
+                    return CreateUser(success=False, message='Email ya registrado')
+                if getattr(input, 'username', None):
+                    if User.objects.filter(username__iexact=input.username).exists():
+                        return CreateUser(success=False, message='Usuario (username) ya registrado')
+
                 new_user = User.objects.create_user(
                     email=input.email,
                     password=input.password,
                     first_name=input.first_name,
                     last_name=input.last_name,
                     role=input.role,
-                    is_active=True
+                    is_active=(True if input.is_active is None else bool(input.is_active)),
+                    username=getattr(input, 'username', None) or None,
                 )
+
+                # Si es PRACTICANTE, exigir y crear Student con código
+                if new_user.role == 'PRACTICANTE':
+                    codigo = (getattr(input, 'codigo_estudiante', '') or '').strip()
+                    if not codigo:
+                        return CreateUser(success=False, message='codigo_estudiante es obligatorio para PRACTICANTE')
+                    # Si no se proporcionó password, usar el código como contraseña
+                    if not input.password:
+                        new_user.set_password(codigo)
+                        new_user.save(update_fields=['password'])
+                    Student.objects.create(
+                        user=new_user,
+                        codigo_estudiante=codigo,
+                    )
+                # Enviar correo de bienvenida (solo si está habilitado)
+                if getattr(settings, 'EMAIL_ENABLED', False):
+                    try:
+                        ctx = { 'user': new_user }
+                        html_body = render_to_string('emails/user_welcome.html', ctx)
+                        msg = EmailMultiAlternatives(
+                            'Cuenta creada exitosamente',
+                            html_body,
+                            settings.DEFAULT_FROM_EMAIL,
+                            [new_user.email]
+                        )
+                        msg.attach_alternative(html_body, 'text/html')
+                        msg.send()
+                    except Exception:
+                        pass
                 
                 return CreateUser(
                     success=True,
@@ -75,14 +149,27 @@ class UpdateUser(graphene.Mutation):
     @login_required
     def mutate(root, info, id, input):
         user = info.context.user
-        if user.role not in ['COORDINADOR', 'ADMINISTRADOR']:
-            return UpdateUser(success=False, message="Sin permisos para actualizar usuarios")
+        if user.role != 'ADMINISTRADOR':
+            return UpdateUser(success=False, message="Solo ADMINISTRADOR puede actualizar usuarios")
         
         try:
-            target_user = User.objects.get(id=id)
+            try:
+                _, real_id = from_global_id(id)
+            except Exception:
+                real_id = id
+            target_user = User.objects.get(id=real_id)
             
             # Actualizar campos
             if input.email:
+                try:
+                    domain = input.email.split('@')[1].lower()
+                except Exception:
+                    domain = ''
+                allowed = [d.lower() for d in getattr(settings, 'ALLOWED_EMAIL_DOMAINS', [])]
+                if allowed and domain not in allowed:
+                    return UpdateUser(success=False, message='Dominio de email no permitido')
+                if User.objects.filter(email__iexact=input.email).exclude(id=target_user.id).exists():
+                    return UpdateUser(success=False, message='Email ya registrado')
                 target_user.email = input.email
             if input.first_name:
                 target_user.first_name = input.first_name
@@ -92,6 +179,12 @@ class UpdateUser(graphene.Mutation):
                 target_user.role = input.role
             if input.password:
                 target_user.set_password(input.password)
+            if getattr(input, 'username', None):
+                if User.objects.filter(username__iexact=input.username).exclude(id=target_user.id).exists():
+                    return UpdateUser(success=False, message='Usuario (username) ya registrado')
+                target_user.username = input.username
+            if input.is_active is not None:
+                target_user.is_active = bool(input.is_active)
             
             target_user.save()
             
@@ -104,6 +197,610 @@ class UpdateUser(graphene.Mutation):
             return UpdateUser(success=False, message="Usuario no encontrado")
         except Exception as e:
             return UpdateUser(success=False, message=f"Error al actualizar usuario: {str(e)}")
+
+
+class UpdateMyProfile(graphene.Mutation):
+    """Actualiza el perfil del usuario autenticado (nombres, apellidos, username)."""
+
+    class Arguments:
+        input = ProfileInput(required=True)
+
+    success = graphene.Boolean()
+    user = graphene.Field(UserType)
+    message = graphene.String()
+
+    @staticmethod
+    @login_required
+    def mutate(root, info, input):
+        user = info.context.user
+        try:
+            changed = False
+            # Username
+            new_username = getattr(input, 'username', None)
+            if new_username:
+                val = (new_username or '').strip()
+                if val and val.lower() != (user.username or '').lower():
+                    if User.objects.filter(username__iexact=val).exclude(id=user.id).exists():
+                        return UpdateMyProfile(success=False, message='Usuario (username) ya registrado')
+                    user.username = val
+                    changed = True
+            # First name / Last name
+            if getattr(input, 'first_name', None):
+                user.first_name = (input.first_name or '').strip()
+                changed = True
+            if getattr(input, 'last_name', None):
+                user.last_name = (input.last_name or '').strip()
+                changed = True
+
+            if changed:
+                user.save(update_fields=['username','first_name','last_name','updated_at'])
+                return UpdateMyProfile(success=True, user=user, message='Perfil actualizado')
+            else:
+                return UpdateMyProfile(success=True, user=user, message='Sin cambios')
+        except Exception as e:
+            return UpdateMyProfile(success=False, message=f'Error al actualizar perfil: {str(e)}')
+
+
+# ===== AUTH MUTATIONS (LOGIN / PASSWORD RESET) =====
+class TokenAuth(graphene.Mutation):
+    """Mutation de login con verificación de reCAPTCHA y dominio permitido."""
+
+    class Arguments:
+        # Permitir login con username o email (preferencia: username)
+        username = graphene.String(required=False)
+        email = graphene.String(required=False)
+        password = graphene.String(required=True)
+        recaptcha_token = graphene.String(required=False)
+
+    success = graphene.Boolean()
+    token = graphene.String()
+    refresh_token = graphene.String()
+    user = graphene.Field(UserType)
+    message = graphene.String()
+
+    @staticmethod
+    @allow_any
+    def mutate(root, info, password, username=None, email=None, recaptcha_token=None):
+        request = info.context
+
+        # reCAPTCHA
+        if getattr(settings, 'RECAPTCHA_ENABLED', False):
+            if not verify_recaptcha(recaptcha_token, request.META.get('REMOTE_ADDR')):
+                return TokenAuth(success=False, message='reCAPTCHA inválido')
+
+        # Intentos por identificador (email o username) - 30 en 1h
+        ident = (username or email or '').lower()
+        key_attempts = f"loginfail:{ident}"
+        key_notify = f"loginfailnotify:{ident}"
+        blocked = cache.get(key_attempts)
+        if isinstance(blocked, int) and blocked >= 30:
+            # Intentar enviar notificación de bloqueo una sola vez por ventana
+            try:
+                if cache.add(key_notify, 1, timeout=3600):
+                    # Resolver email destinatario
+                    recipient = None
+                    if email:
+                        recipient = email
+                    elif username:
+                        try:
+                            recipient = User.objects.filter(username__iexact=username).values_list('email', flat=True).first()
+                        except Exception:
+                            recipient = None
+                    if recipient and getattr(settings, 'EMAIL_ENABLED', False):
+                        ctx = { 'email': recipient }
+                        html_body = render_to_string('emails/account_locked.html', ctx)
+                        msg = EmailMultiAlternatives(
+                            'Cuenta bloqueada temporalmente',
+                            html_body,
+                            settings.DEFAULT_FROM_EMAIL,
+                            [recipient]
+                        )
+                        msg.attach_alternative(html_body, 'text/html')
+                        msg.send()
+                        # Además, generar OTP y enviar email de "olvidaste tu contraseña" con el mismo diseño
+                        try:
+                            # Intentar obtener usuario real para el saludo; si no existe, continuar sin él
+                            user_obj = None
+                            try:
+                                user_obj = User.objects.filter(email__iexact=recipient).first()
+                            except Exception:
+                                user_obj = None
+                            otp_code = str(secrets.randbelow(1000000)).zfill(6)
+                            cache.set(f"pwdotp:{recipient.lower()}", otp_code, timeout=600)
+                            ctx2 = { 'user': user_obj, 'code': otp_code }
+                            html2 = render_to_string('emails/password_reset_code.html', ctx2)
+                            msg2 = EmailMultiAlternatives('Código para restablecer contraseña', html2, settings.DEFAULT_FROM_EMAIL, [recipient])
+                            msg2.attach_alternative(html2, 'text/html')
+                            msg2.send()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            try:
+                logging.getLogger('security').warning('Cuenta bloqueada por intentos fallidos: %s', (email or username or ''))
+            except Exception:
+                pass
+            return TokenAuth(success=False, message='Usuario temporalmente bloqueado por múltiples intentos fallidos (1 hora)')
+
+        # Dominio permitido (solo si usa email para login)
+        if email:
+            try:
+                domain = email.split('@')[1].lower()
+            except Exception:
+                domain = ''
+            allowed = [d.lower() for d in getattr(settings, 'ALLOWED_EMAIL_DOMAINS', [])]
+            if allowed and domain not in allowed:
+                return TokenAuth(success=False, message='Dominio de email no permitido')
+
+        # Autenticación estricta por credenciales (ignorar cualquier JWT en cookies/headers)
+        try:
+            if username:
+                target_user = User.objects.get(username__iexact=username)
+            else:
+                target_user = User.objects.get(email__iexact=(email or ''))
+        except User.DoesNotExist:
+            try:
+                created = cache.add(key_attempts, 1, timeout=3600)
+                if not created:
+                    new_val = cache.incr(key_attempts)
+                    # Si alcanzó umbral, enviar aviso (una vez)
+                    if isinstance(new_val, int) and new_val >= 30:
+                        try:
+                            if cache.add(key_notify, 1, timeout=3600):
+                                # Si tenemos email en el intento, notificar
+                                if email and getattr(settings, 'EMAIL_ENABLED', False):
+                                    ctx = { 'email': email }
+                                    html_body = render_to_string('emails/account_locked.html', ctx)
+                                    msg = EmailMultiAlternatives('Cuenta bloqueada temporalmente', html_body, settings.DEFAULT_FROM_EMAIL, [email])
+                                    msg.attach_alternative(html_body, 'text/html')
+                                    msg.send()
+                                    # No generamos OTP aquí si el usuario no existe (evitar revelar información)
+                        except Exception:
+                            pass
+                        try:
+                            logging.getLogger('security').warning('Cuenta bloqueada por intentos fallidos: %s', (email or username or ''))
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            return TokenAuth(success=False, message='Credenciales inválidas o usuario inactivo')
+
+        if not target_user.is_active or not target_user.check_password(password):
+            try:
+                created = cache.add(key_attempts, 1, timeout=3600)
+                if not created:
+                    new_val = cache.incr(key_attempts)
+                    if isinstance(new_val, int) and new_val >= 30:
+                        try:
+                            if cache.add(key_notify, 1, timeout=3600):
+                                # Notificar a correo real del usuario
+                                if getattr(settings, 'EMAIL_ENABLED', False):
+                                    recipient = target_user.email
+                                    ctx = { 'email': recipient }
+                                    html_body = render_to_string('emails/account_locked.html', ctx)
+                                    msg = EmailMultiAlternatives('Cuenta bloqueada temporalmente', html_body, settings.DEFAULT_FROM_EMAIL, [recipient])
+                                    msg.attach_alternative(html_body, 'text/html')
+                                    msg.send()
+                                    # Además, generar OTP y enviar el correo de restablecimiento con el mismo diseño
+                                    try:
+                                        otp_code = str(secrets.randbelow(1000000)).zfill(6)
+                                        cache.set(f"pwdotp:{recipient.lower()}", otp_code, timeout=600)
+                                        ctx2 = { 'user': target_user, 'code': otp_code }
+                                        html2 = render_to_string('emails/password_reset_code.html', ctx2)
+                                        msg2 = EmailMultiAlternatives('Código para restablecer contraseña', html2, settings.DEFAULT_FROM_EMAIL, [recipient])
+                                        msg2.attach_alternative(html2, 'text/html')
+                                        msg2.send()
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+                        try:
+                            logging.getLogger('security').warning('Cuenta bloqueada por intentos fallidos: %s', target_user.email)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            return TokenAuth(success=False, message='Credenciales inválidas o usuario inactivo')
+
+        user = target_user
+
+        # Generar tokens
+        token = graphql_jwt.shortcuts.get_token(user)
+        refresh_value = None
+        try:
+            from graphql_jwt.refresh_token.shortcuts import create_refresh_token
+            rt = create_refresh_token(user)
+            refresh_value = str(getattr(rt, 'token', rt))
+        except Exception:
+            refresh_value = None
+
+        # Resetear contador de fallos al autenticar correctamente
+        cache.delete(key_attempts)
+
+        # Poner tokens en el request para que la vista pueda setear cookies HttpOnly
+        try:
+            setattr(request, '_jwt_tokens', {'access': token, 'refresh': refresh_value})
+        except Exception:
+            pass
+
+        # Actualizar last_login manualmente (ruta GraphQL no lo hace por defecto)
+        try:
+            user.last_login = timezone.now()
+            user.save(update_fields=['last_login'])
+        except Exception:
+            pass
+
+        return TokenAuth(success=True, token=token, refresh_token=refresh_value, user=user, message='Login exitoso')
+
+
+class StableRefresh(graphene.Mutation):
+    """Refresca el access token sin rotar el refresh token y validando is_active."""
+
+    class Arguments:
+        refresh_token = graphene.String(required=False)
+
+    token = graphene.String()
+    refresh_token = graphene.String()
+    message = graphene.String()
+
+    @staticmethod
+    @allow_any
+    def mutate(root, info, refresh_token=None):
+        request = info.context
+
+        # Obtener refresh token desde argumento o cookie
+        jwt_settings = getattr(settings, 'GRAPHQL_JWT', {})
+        cookie_name = jwt_settings.get('JWT_REFRESH_TOKEN_COOKIE_NAME', 'JWT_REFRESH_TOKEN')
+        token_value = (refresh_token or request.COOKIES.get(cookie_name))
+        if not token_value or GQLRefreshToken is None:
+            return StableRefresh(token=None, refresh_token=None, message='Refresh token no provisto')
+
+        try:
+            rt = GQLRefreshToken.objects.get(token=token_value, revoked__isnull=True)
+        except GQLRefreshToken.DoesNotExist:
+            return StableRefresh(token=None, refresh_token=None, message='Refresh token inválido')
+        except Exception:
+            return StableRefresh(token=None, refresh_token=None, message='Error al validar refresh token')
+
+        # Expiración
+        if rt.is_expired(request=request):
+            return StableRefresh(token=None, refresh_token=None, message='Refresh token expirado')
+
+        user = rt.user
+        if not user.is_active:
+            return StableRefresh(token=None, refresh_token=None, message='Usuario inactivo')
+
+        access = graphql_jwt.shortcuts.get_token(user)
+        # No rotamos ni reusamos el refresh para mantener el mismo valor
+        return StableRefresh(token=access, refresh_token=token_value, message='Token refrescado')
+
+
+class UploadMyPhotoBase64(graphene.Mutation):
+    """Sube/actualiza la foto de perfil del usuario autenticado a partir de base64."""
+
+    class Arguments:
+        photo_base64 = graphene.String(required=True, description="Cadena base64. Puede incluir prefijo data:image/...;base64,")
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    photo_url = graphene.String()
+
+    @staticmethod
+    @login_required
+    def mutate(root, info, photo_base64):
+        user = info.context.user
+        try:
+            data = photo_base64.strip()
+            # Eliminar prefijo data URL si existe
+            if ',' in data and data.lower().startswith('data:'):
+                data = data.split(',', 1)[1]
+            try:
+                file_bytes = base64.b64decode(data, validate=True)
+            except Exception:
+                return UploadMyPhotoBase64(success=False, message='Imagen base64 inválida')
+
+            # Límite por configuración
+            max_size = int(getattr(settings, 'FILE_UPLOAD_MAX_MEMORY_SIZE', 5 * 1024 * 1024))
+            if len(file_bytes) > max_size:
+                return UploadMyPhotoBase64(success=False, message='La imagen excede el tamaño máximo permitido')
+
+            # Detectar tipo
+            kind = imghdr.what(None, h=file_bytes) or 'jpeg'
+            ext = 'jpg' if kind in ('jpeg', 'jpg') else kind
+            filename = f"user_{user.id}_{int(time.time())}.{ext}"
+
+            content = ContentFile(file_bytes, name=filename)
+            # Guardar
+            user.photo.save(filename, content, save=True)
+
+            # Construir URL absoluta
+            request = info.context
+            url = None
+            try:
+                url = user.photo.url
+                if url and hasattr(request, 'build_absolute_uri'):
+                    url = request.build_absolute_uri(url)
+            except Exception:
+                url = None
+            return UploadMyPhotoBase64(success=True, message='Foto actualizada', photo_url=url)
+        except Exception as e:
+            return UploadMyPhotoBase64(success=False, message=f'Error al subir foto: {str(e)}', photo_url=None)
+
+
+class UploadMyPhotoUrl(graphene.Mutation):
+    """Actualiza la foto de perfil descargando desde una URL pública (HTTP/HTTPS)."""
+
+    class Arguments:
+        photo_url = graphene.String(required=True, description="URL pública de la imagen (HTTP/HTTPS)")
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    photo_url = graphene.String()
+
+    @staticmethod
+    @login_required
+    def mutate(root, info, photo_url):
+        user = info.context.user
+        try:
+            url = (photo_url or '').strip()
+            if not (url.startswith('http://') or url.startswith('https://')):
+                return UploadMyPhotoUrl(success=False, message='URL inválida (debe iniciar con http:// o https://)', photo_url=None)
+
+            # Descargar con timeout y tamaño acotado
+            max_size = int(getattr(settings, 'FILE_UPLOAD_MAX_MEMORY_SIZE', 5 * 1024 * 1024))
+            try:
+                resp = requests.get(url, stream=True, timeout=6)
+                resp.raise_for_status()
+            except Exception:
+                return UploadMyPhotoUrl(success=False, message='No se pudo descargar la imagen', photo_url=None)
+
+            content_type = resp.headers.get('Content-Type', '')
+            if not content_type.startswith('image/'):
+                return UploadMyPhotoUrl(success=False, message='La URL no apunta a una imagen', photo_url=None)
+
+            # Leer hasta max_size + 1 para detectar exceso
+            data = b''
+            chunk_size = 64 * 1024
+            for chunk in resp.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    data += chunk
+                    if len(data) > max_size:
+                        return UploadMyPhotoUrl(success=False, message='La imagen excede el tamaño máximo permitido', photo_url=None)
+
+            # Detectar tipo
+            kind = imghdr.what(None, h=data) or 'jpeg'
+            ext = 'jpg' if kind in ('jpeg', 'jpg') else kind
+            # Derivar nombre desde URL
+            parsed = urlparse(url)
+            base_name = (parsed.path.rsplit('/', 1)[-1] or f'ext_{int(time.time())}').split('?')[0]
+            if '.' not in base_name:
+                base_name = f"{base_name}.{ext}"
+            filename = f"user_{user.id}_{int(time.time())}_{base_name}"
+
+            content = ContentFile(data, name=filename)
+            user.photo.save(filename, content, save=True)
+
+            # Construir URL absoluta
+            request = info.context
+            out_url = None
+            try:
+                out_url = user.photo.url
+                if out_url and hasattr(request, 'build_absolute_uri'):
+                    out_url = request.build_absolute_uri(out_url)
+            except Exception:
+                out_url = None
+
+            return UploadMyPhotoUrl(success=True, message='Foto actualizada', photo_url=out_url)
+        except Exception as e:
+            return UploadMyPhotoUrl(success=False, message=f'Error al actualizar foto: {str(e)}', photo_url=None)
+
+class ForgotPassword(graphene.Mutation):
+    """Envía un código OTP para restablecer la contraseña (con reCAPTCHA y rate limit)."""
+
+    class Arguments:
+        email = graphene.String(required=True)
+        recaptcha_token = graphene.String(required=False)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    # Solo con fines de desarrollo/pruebas cuando no hay envío de email
+    code = graphene.String()
+
+    @staticmethod
+    @allow_any
+    def mutate(root, info, email, recaptcha_token=None):
+        request = info.context
+
+        # reCAPTCHA
+        if getattr(settings, 'RECAPTCHA_ENABLED', False):
+            if not verify_recaptcha(recaptcha_token, request.META.get('REMOTE_ADDR')):
+                return ForgotPassword(success=False, message='reCAPTCHA inválido')
+
+        # Limitar 5 solicitudes por hora por email
+        key_req = f"pwdreq:{email.lower()}"
+        key_notify = f"pwdreqnotify:{email.lower()}"
+        current = cache.get(key_req)
+        if isinstance(current, int) and current >= 5:
+            # Notificar por correo SOLO una vez por ventana y solo si el usuario existe (evitar enumeración)
+            if getattr(settings, 'EMAIL_ENABLED', False):
+                try:
+                    user_obj = User.objects.filter(email__iexact=email).first()
+                    if user_obj and cache.add(key_notify, 1, timeout=3600):
+                        ctx = { 'user': user_obj }
+                        html_body = render_to_string('emails/password_reset_rate_limited.html', ctx)
+                        msg = EmailMultiAlternatives('Has alcanzado el límite de solicitudes', html_body, settings.DEFAULT_FROM_EMAIL, [email])
+                        msg.attach_alternative(html_body, 'text/html')
+                        msg.send()
+                except Exception:
+                    pass
+            return ForgotPassword(success=False, message='Has superado el límite de solicitudes. Intenta en 1 hora')
+
+        # Dominio permitido
+        try:
+            domain = email.split('@')[1].lower()
+        except Exception:
+            domain = ''
+        allowed = [d.lower() for d in getattr(settings, 'ALLOWED_EMAIL_DOMAINS', [])]
+        if allowed and domain not in allowed:
+            # No revelar si existe o no
+            return ForgotPassword(success=True, message='Si el correo existe, se enviará un código')
+
+        UserModel = get_user_model()
+        try:
+            user = UserModel.objects.get(email__iexact=email)
+        except UserModel.DoesNotExist:
+            # Evitar enumeración de usuarios
+            # Aun así aumentamos contador para mitigar abuso
+            cache.add(key_req, 1, 3600) or cache.incr(key_req)
+            return ForgotPassword(success=True, message='Si el correo existe, se enviará un código')
+
+        # Generar código OTP de 6 dígitos, válido 10 min
+        code = str(secrets.randbelow(1000000)).zfill(6)
+        cache.set(f"pwdotp:{email.lower()}", code, timeout=600)
+        # Incrementar contador de solicitudes (ventana 1h)
+        cache.add(key_req, 1, 3600) or cache.incr(key_req)
+
+        # Enviar email con el código (solo si está habilitado)
+        if getattr(settings, 'EMAIL_ENABLED', False):
+            try:
+                ctx = { 'user': user, 'code': code }
+                html_body = render_to_string('emails/password_reset_code.html', ctx)
+                msg = EmailMultiAlternatives('Código para restablecer contraseña', html_body, settings.DEFAULT_FROM_EMAIL, [email])
+                msg.attach_alternative(html_body, 'text/html')
+                msg.send()
+            except Exception:
+                pass
+
+        # Exponer código en entorno de desarrollo o cuando no se envían correos
+        debug_show_code = (not getattr(settings, 'EMAIL_ENABLED', False)) or getattr(settings, 'DEBUG', False)
+        return ForgotPassword(success=True, message='Si el correo existe, se envió un código de verificación', code=(code if debug_show_code else None))
+
+
+class ResetPasswordWithCode(graphene.Mutation):
+    """Restablece contraseña verificando un código OTP enviado al correo."""
+
+    class Arguments:
+        email = graphene.String(required=True)
+        code = graphene.String(required=True)
+        new_password = graphene.String(required=True)
+        confirm_password = graphene.String(required=True)
+        recaptcha_token = graphene.String(required=False)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    @allow_any
+    def mutate(root, info, email, code, new_password, confirm_password, recaptcha_token=None):
+        request = info.context
+        if getattr(settings, 'RECAPTCHA_ENABLED', False):
+            if not verify_recaptcha(recaptcha_token, request.META.get('REMOTE_ADDR')):
+                return ResetPasswordWithCode(success=False, message='reCAPTCHA inválido')
+
+        if new_password != confirm_password:
+            return ResetPasswordWithCode(success=False, message='Las contraseñas no coinciden')
+        if len(new_password) < 8:
+            return ResetPasswordWithCode(success=False, message='La contraseña debe tener al menos 8 caracteres')
+
+        cached_code = cache.get(f"pwdotp:{email.lower()}")
+        if not cached_code or cached_code != code:
+            return ResetPasswordWithCode(success=False, message='Código inválido o expirado')
+
+        UserModel = get_user_model()
+        try:
+            user = UserModel.objects.get(email__iexact=email)
+        except UserModel.DoesNotExist:
+            return ResetPasswordWithCode(success=False, message='Usuario no encontrado')
+
+        user.set_password(new_password)
+        user.save(update_fields=['password'])
+        cache.delete(f"pwdotp:{email.lower()}")
+        return ResetPasswordWithCode(success=True, message='Contraseña actualizada correctamente')
+
+
+class ChangePassword(graphene.Mutation):
+    """Cambio de contraseña para usuario autenticado requiriendo contraseña actual."""
+
+    class Arguments:
+        current_password = graphene.String(required=True)
+        new_password = graphene.String(required=True)
+        confirm_password = graphene.String(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    @login_required
+    def mutate(root, info, current_password, new_password, confirm_password):
+        user = info.context.user
+        if new_password != confirm_password:
+            return ChangePassword(success=False, message='Las contraseñas no coinciden')
+        if len(new_password) < 8:
+            return ChangePassword(success=False, message='La contraseña debe tener al menos 8 caracteres')
+        if not user.check_password(current_password):
+            return ChangePassword(success=False, message='La contraseña actual es incorrecta')
+        user.set_password(new_password)
+        user.save(update_fields=['password'])
+        return ChangePassword(success=True, message='Contraseña actualizada correctamente')
+
+
+class DeleteUser(graphene.Mutation):
+    """Elimina un usuario (solo ADMINISTRADOR)."""
+
+    class Arguments:
+        id = graphene.ID(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    @login_required
+    def mutate(root, info, id):
+        user = info.context.user
+        if user.role != 'ADMINISTRADOR':
+            return DeleteUser(success=False, message='Solo ADMINISTRADOR puede eliminar usuarios')
+        try:
+            try:
+                _, real_id = from_global_id(id)
+            except Exception:
+                real_id = id
+            target = User.objects.get(id=real_id)
+            target.delete()
+            return DeleteUser(success=True, message='Usuario eliminado correctamente')
+        except User.DoesNotExist:
+            return DeleteUser(success=False, message='Usuario no encontrado')
+        except Exception as e:
+            return DeleteUser(success=False, message=f'Error al eliminar usuario: {str(e)}')
+
+
+class Logout(graphene.Mutation):
+    """Cierra sesión: revoca refresh token y limpia cookies HttpOnly."""
+
+    success = graphene.Boolean()
+    message = graphene.String()
+
+    class Arguments:
+        refresh_token = graphene.String(required=False)
+
+    @staticmethod
+    @allow_any
+    def mutate(root, info, refresh_token=None):
+        request = info.context
+        # Intentar obtener refresh token desde argumento o cookie
+        token = refresh_token or request.COOKIES.get(getattr(settings, 'GRAPHQL_JWT', {}).get('JWT_REFRESH_TOKEN_COOKIE_NAME', 'JWT_REFRESH_TOKEN'))
+        revoked = False
+        if token and GQLRefreshToken is not None:
+            try:
+                obj = GQLRefreshToken.objects.get(token=token)
+                obj.revoke()
+                revoked = True
+            except GQLRefreshToken.DoesNotExist:
+                pass
+            except Exception:
+                pass
+        # Señalar al view para limpiar cookies
+        setattr(request, '_clear_jwt_cookies', True)
+        return Logout(success=True, message='Sesión cerrada' + (' y token revocado' if revoked else ''))
 
 
 # ===== MUTATIONS PARA ESTUDIANTES =====
@@ -133,14 +830,13 @@ class CreateStudent(graphene.Mutation):
                 student = Student.objects.create(
                     user=target_user,
                     codigo_estudiante=input.codigo_estudiante,
-                    dni=input.dni,
-                    fecha_nacimiento=input.fecha_nacimiento,
+                    documento_tipo=input.documento_tipo,
+                    documento_numero=input.documento_numero,
                     telefono=input.telefono,
                     direccion=input.direccion,
                     carrera=input.carrera,
                     semestre_actual=input.semestre_actual,
                     promedio_ponderado=input.promedio_ponderado,
-                    fecha_ingreso=input.fecha_ingreso
                 )
                 
                 return CreateStudent(
@@ -175,14 +871,15 @@ class CreateCompany(graphene.Mutation):
         try:
             with transaction.atomic():
                 company = Company.objects.create(
-                    nombre=input.nombre,
                     ruc=input.ruc,
+                    razon_social=input.razon_social,
+                    nombre_comercial=input.nombre_comercial,
                     direccion=input.direccion,
                     telefono=input.telefono,
                     email=input.email,
-                    sector=input.sector,
-                    descripcion=input.descripcion,
-                    status=CompanyStatus.PENDING_VALIDATION.value
+                    sector_economico=input.sector_economico,
+                    tamaño_empresa=input.tamano_empresa,
+                    status=CompanyStatus.PENDING_VALIDATION.value,
                 )
                 
                 return CreateCompany(
@@ -218,15 +915,11 @@ class ValidateCompany(graphene.Mutation):
             
             if approve:
                 company.status = CompanyStatus.ACTIVE.value
-                company.fecha_aprobacion = timezone.now()
-                company.aprobado_por = user
+                company.fecha_validacion = timezone.now()
                 message = "Empresa aprobada exitosamente"
             else:
                 company.status = CompanyStatus.SUSPENDED.value
                 message = "Empresa rechazada"
-            
-            if observations:
-                company.observaciones = observations
             
             company.save()
             
@@ -288,12 +981,14 @@ class CreatePractice(graphene.Mutation):
                     company=company,
                     supervisor=supervisor,
                     titulo=input.titulo,
-                    descripcion=input.descripcion,
+                    descripcion=input.descripcion or "",
+                    objetivos=input.objetivos or [],
                     fecha_inicio=input.fecha_inicio,
                     fecha_fin=input.fecha_fin,
-                    horas_requeridas=input.horas_requeridas or 480,
+                    horas_totales=input.horas_totales or 0,
+                    modalidad=input.modalidad or 'PRESENCIAL',
+                    area_practica=input.area_practica,
                     status=PracticeStatus.DRAFT.value,
-                    creado_por=user
                 )
                 
                 return CreatePractice(
@@ -354,11 +1049,6 @@ class UpdatePracticeStatus(graphene.Mutation):
             if observations:
                 practice.observaciones = observations
             
-            # Registrar fecha de aprobación
-            if status == PracticeStatus.APPROVED.value:
-                practice.fecha_aprobacion = timezone.now()
-                practice.aprobado_por = user
-            
             practice.save()
             
             return UpdatePracticeStatus(
@@ -374,59 +1064,6 @@ class UpdatePracticeStatus(graphene.Mutation):
 
 
 # ===== MUTATIONS PARA DOCUMENTOS =====
-class UploadDocument(graphene.Mutation):
-    """Mutation para subir un documento."""
-    
-    class Arguments:
-        input = DocumentInput(required=True)
-    
-    success = graphene.Boolean()
-    document = graphene.Field(DocumentType)
-    message = graphene.String()
-    
-    @staticmethod
-    @login_required
-    def mutate(root, info, input):
-        user = info.context.user
-        
-        try:
-            practice = Practice.objects.get(id=input.practice_id)
-            
-            # Verificar permisos
-            can_upload = False
-            if user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
-                can_upload = True
-            elif user.role == UserRole.PRACTICANTE.value:
-                student = getattr(user, 'student_profile', None)
-                if student and practice.student.id == student.id:
-                    can_upload = True
-            elif user.role == UserRole.SUPERVISOR.value:
-                supervisor = getattr(user, 'supervisor_profile', None)
-                if supervisor and practice.supervisor and practice.supervisor.id == supervisor.id:
-                    can_upload = True
-            
-            if not can_upload:
-                return UploadDocument(success=False, message="Sin permisos para subir documentos")
-            
-            document = Document.objects.create(
-                practice=practice,
-                tipo=input.tipo,
-                nombre=input.nombre,
-                descripcion=input.descripcion,
-                archivo_url=input.archivo_url,
-                subido_por=user
-            )
-            
-            return UploadDocument(
-                success=True,
-                document=document,
-                message="Documento subido exitosamente"
-            )
-            
-        except Practice.DoesNotExist:
-            return UploadDocument(success=False, message="Práctica no encontrada")
-        except Exception as e:
-            return UploadDocument(success=False, message=f"Error al subir documento: {str(e)}")
 
 
 # ===== MUTATIONS PARA NOTIFICACIONES =====
@@ -467,9 +1104,24 @@ class MarkNotificationAsRead(graphene.Mutation):
 class Mutation(graphene.ObjectType):
     """Mutations principales del sistema."""
     
+    # Auth
+    token_auth = TokenAuth.Field()
+    verify_token = graphql_jwt.Verify.Field()
+    # Opción original de la librería (rota el refresh):
+    refresh_token = graphql_jwt.Refresh.Field()
+    # Opción estable (no rota el refresh):
+    stable_refresh = StableRefresh.Field()
+    forgot_password = ForgotPassword.Field()
+    reset_password_with_code = ResetPasswordWithCode.Field()
+    change_password = ChangePassword.Field()
+    logout = Logout.Field()
+
     # Usuarios
     create_user = CreateUser.Field()
     update_user = UpdateUser.Field()
+    update_my_profile = UpdateMyProfile.Field()
+    upload_my_photo_base64 = UploadMyPhotoBase64.Field()
+    upload_my_photo_url = UploadMyPhotoUrl.Field()
     
     # Estudiantes
     create_student = CreateStudent.Field()
@@ -481,9 +1133,6 @@ class Mutation(graphene.ObjectType):
     # Prácticas
     create_practice = CreatePractice.Field()
     update_practice_status = UpdatePracticeStatus.Field()
-    
-    # Documentos
-    upload_document = UploadDocument.Field()
     
     # Notificaciones
     mark_notification_as_read = MarkNotificationAsRead.Field()
