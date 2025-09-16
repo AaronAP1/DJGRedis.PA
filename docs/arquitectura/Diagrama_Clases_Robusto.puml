@@ -1,0 +1,351 @@
+@startuml
+!theme plain
+
+title Diagrama de Clases - Sistema PPP UPeU (Arquitectura Hexagonal)
+
+package "Domain Layer" {
+  
+  enum RolEnum {
+    PRACTICANTE
+    SUPERVISOR
+    SECRETARIA
+    COORDINADOR
+    ADMINISTRADOR
+    SUPERADMIN
+  }
+  
+  enum EstadoPracticaEnum {
+    BORRADOR
+    PENDIENTE
+    APROBADO
+    EN_PROGRESO
+    COMPLETADO
+    RECHAZADO
+  }
+  
+  enum EstadoDocumentoEnum {
+    PENDIENTE
+    VALIDADO
+    RECHAZADO
+  }
+  
+  enum EstadoPostulacionEnum {
+    PENDIENTE
+    ACEPTADO
+    RECHAZADO
+  }
+  
+  class Escuela {
+    - id: UUID
+    - nombre: str
+    - codigo: str
+    - descripcion: str
+    - estado: bool
+    + validar_codigo()
+    + activar()
+    + desactivar()
+  }
+  
+  class Usuario {
+    - id: UUID
+    - correo: Email
+    - hash_contraseña: str
+    - nombres: str
+    - apellidos: str
+    - dni: DNI
+    - telefono: str
+    - rol: RolEnum
+    - escuela_id: UUID
+    - activo: bool
+    - fecha_creacion: datetime
+    + validar_credenciales()
+    + cambiar_contraseña()
+    + es_activo()
+    + tiene_rol()
+  }
+  
+  class PerfilPracticante {
+    - id: UUID
+    - usuario_id: UUID
+    - codigo: CodigoEstudiante
+    - semestre: int
+    - promedio: Decimal
+    - fecha_nacimiento: date
+    - direccion: str
+    - escuela_id: UUID
+    - rama_id: UUID
+    - cv_path: str
+    - fecha_cv_subido: datetime
+    + validar_promedio()
+    + puede_realizar_practica()
+    + subir_cv()
+    + actualizar_cv()
+  }
+  
+  class Empresa {
+    - id: UUID
+    - nombre: str
+    - ruc: RUC
+    - direccion: str
+    - telefono: str
+    - correo: Email
+    - estado: bool
+    - validado_por: UUID
+    - fecha_validacion: datetime
+    + validar_ruc()
+    + activar()
+    + desactivar()
+    + esta_validada()
+  }
+  
+  class Practica {
+    - id: UUID
+    - practicante_id: UUID
+    - empresa_id: UUID
+    - supervisor_id: UUID
+    - coordinador_id: UUID
+    - secretaria_id: UUID
+    - fecha_inicio: date
+    - fecha_fin: date
+    - horas_totales: int
+    - estado: EstadoPracticaEnum
+    - fecha_creacion: datetime
+    - fecha_actualizacion: datetime
+    + calcular_duracion()
+    + cambiar_estado()
+    + puede_cambiar_estado()
+    + validar_horas_minimas()
+    + finalizar()
+  }
+  
+  class OportunidadLaboral {
+    - id: UUID
+    - empresa_id: UUID
+    - titulo: str
+    - descripcion: str
+    - rama_id: UUID
+    - requisitos: str
+    - fecha_publicacion: datetime
+    - fecha_cierre: date
+    - estado: bool
+    + publicar()
+    + cerrar()
+    + esta_vigente()
+    + acepta_postulaciones()
+  }
+  
+  class PostulacionOportunidad {
+    - id: UUID
+    - oportunidad_id: UUID
+    - practicante_id: UUID
+    - fecha_postulacion: datetime
+    - estado: EstadoPostulacionEnum
+    - comentario: str
+    + postular()
+    + aceptar()
+    + rechazar()
+  }
+  
+  class DocumentoPractica {
+    - id: UUID
+    - practica_id: UUID
+    - tipo_documento_id: UUID
+    - ruta_archivo: str
+    - subido_por: UUID
+    - fecha_subida: datetime
+    - estado: EstadoDocumentoEnum
+    - validado_por: UUID
+    - fecha_validacion: datetime
+    - comentario: str
+    + subir_archivo()
+    + validar_documento()
+    + rechazar_documento()
+  }
+  
+  ' Value Objects
+  class Email {
+    - valor: str
+    + validar()
+  }
+  
+  class DNI {
+    - numero: str
+    + validar()
+  }
+  
+  class RUC {
+    - numero: str
+    + validar()
+  }
+  
+  class CodigoEstudiante {
+    - codigo: str
+    + generar()
+    + validar_formato()
+  }
+}
+
+package "Application Layer" {
+  
+  class CrearPracticaUseCase {
+    - practica_repo: PracticaRepositoryPort
+    - estudiante_repo: EstudianteRepositoryPort
+    - empresa_repo: EmpresaRepositoryPort
+    + execute(request: CrearPracticaRequest): ApiResponse
+  }
+  
+  class ValidarDocumentoUseCase {
+    - documento_repo: DocumentoRepositoryPort
+    - validacion_service: ValidacionService
+    + execute(request: ValidarDocumentoRequest): ApiResponse
+  }
+  
+  class PostularOportunidadUseCase {
+    - oportunidad_repo: OportunidadRepositoryPort
+    - postulacion_repo: PostulacionRepositoryPort
+    + execute(request: PostularRequest): ApiResponse
+  }
+  
+  class SubirCVUseCase {
+    - practicante_repo: PracticanteRepositoryPort
+    - file_service: FileServicePort
+    + execute(request: SubirCVRequest): ApiResponse
+  }
+  
+  ' DTOs
+  class CrearPracticaRequest {
+    + practicante_id: UUID
+    + empresa_id: UUID
+    + supervisor_id: UUID
+    + fecha_inicio: date
+    + fecha_fin: date
+  }
+  
+  class PracticaResponse {
+    + id: UUID
+    + estado: str
+    + fecha_creacion: datetime
+    + practicante: PracticanteDTO
+    + empresa: EmpresaDTO
+  }
+}
+
+package "Ports" {
+  
+  interface PracticaRepositoryPort {
+    + save(practica: Practica): Practica
+    + find_by_id(id: UUID): Optional[Practica]
+    + find_by_practicante(practicante_id: UUID): List[Practica]
+    + update(practica: Practica): Practica
+  }
+  
+  interface EmpresaRepositoryPort {
+    + save(empresa: Empresa): Empresa
+    + find_by_ruc(ruc: str): Optional[Empresa]
+    + find_activas(): List[Empresa]
+  }
+  
+  interface FileServicePort {
+    + upload_file(file: bytes, path: str): str
+    + delete_file(path: str): bool
+    + get_file_url(path: str): str
+  }
+  
+  interface NotificationServicePort {
+    + send_email(to: str, subject: str, body: str): bool
+    + send_system_notification(user_id: UUID, message: str): bool
+  }
+  
+  interface ValidationServicePort {
+    + validate_ruc(ruc: str): bool
+    + validate_dni(dni: str): bool
+    + validate_student_code(codigo: str): bool
+  }
+}
+
+package "Adapters" {
+  
+  class DjangoPracticaRepository {
+    + save(practica: Practica): Practica
+    + find_by_id(id: UUID): Optional[Practica]
+    + find_by_practicante(practicante_id: UUID): List[Practica]
+    + update(practica: Practica): Practica
+  }
+  
+  class DjangoEmpresaRepository {
+    + save(empresa: Empresa): Empresa
+    + find_by_ruc(ruc: str): Optional[Empresa]
+    + find_activas(): List[Empresa]
+  }
+  
+  class S3FileService {
+    + upload_file(file: bytes, path: str): str
+    + delete_file(path: str): bool
+    + get_file_url(path: str): str
+  }
+  
+  class EmailNotificationService {
+    + send_email(to: str, subject: str, body: str): bool
+    + send_system_notification(user_id: UUID, message: str): bool
+  }
+  
+  class SunatValidationService {
+    + validate_ruc(ruc: str): bool
+    + validate_dni(dni: str): bool
+    + validate_student_code(codigo: str): bool
+  }
+  
+  class RestApiController {
+    - crear_practica_use_case: CrearPracticaUseCase
+    - validar_documento_use_case: ValidarDocumentoUseCase
+    + crear_practica(request): Response
+    + validar_documento(request): Response
+  }
+  
+  class GraphQLApiController {
+    - postular_oportunidad_use_case: PostularOportunidadUseCase
+    - subir_cv_use_case: SubirCVUseCase
+    + postular_oportunidad(args): Response
+    + subir_cv(args): Response
+  }
+}
+
+' === RELACIONES ===
+
+' Domain relationships
+Escuela ||--o{ Usuario
+Usuario ||--o| PerfilPracticante
+Usuario }o--|| RolEnum
+Empresa ||--o{ OportunidadLaboral
+PerfilPracticante ||--o{ Practica
+PerfilPracticante ||--o{ PostulacionOportunidad
+Practica ||--o{ DocumentoPractica
+Practica }o--|| EstadoPracticaEnum
+OportunidadLaboral ||--o{ PostulacionOportunidad
+
+' Value Objects
+Usuario *-- Email
+Usuario *-- DNI
+Empresa *-- RUC
+PerfilPracticante *-- CodigoEstudiante
+
+' Use Cases dependencies
+CrearPracticaUseCase ..> PracticaRepositoryPort
+ValidarDocumentoUseCase ..> ValidationServicePort
+PostularOportunidadUseCase ..> NotificationServicePort
+SubirCVUseCase ..> FileServicePort
+
+' Adapters implement Ports
+DjangoPracticaRepository ..|> PracticaRepositoryPort
+DjangoEmpresaRepository ..|> EmpresaRepositoryPort
+S3FileService ..|> FileServicePort
+EmailNotificationService ..|> NotificationServicePort
+SunatValidationService ..|> ValidationServicePort
+
+' Controllers use Use Cases
+RestApiController ..> CrearPracticaUseCase
+RestApiController ..> ValidarDocumentoUseCase
+GraphQLApiController ..> PostularOportunidadUseCase
+GraphQLApiController ..> SubirCVUseCase
+
+@enduml

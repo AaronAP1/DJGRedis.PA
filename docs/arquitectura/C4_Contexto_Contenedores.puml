@@ -1,0 +1,24 @@
+@startuml
+!define RECTANGLE class
+
+RECTANGLE SistemaDePracticas {
+  RECTANGLE Practicante
+  RECTANGLE Supervisor
+  RECTANGLE Coordinador
+  RECTANGLE Secretaria
+  RECTANGLE Administrador
+}
+RECTANGLE Django_Backend
+RECTANGLE PostgreSQL
+RECTANGLE Redis
+RECTANGLE MongoDB
+RECTANGLE Celery
+RECTANGLE Docker
+
+SistemaDePracticas --> Django_Backend : API REST/GraphQL
+Django_Backend --> PostgreSQL : ORM
+Django_Backend --> Redis : Cache
+Django_Backend --> MongoDB : Logs/NoSQL
+Django_Backend --> Celery : Tareas asíncronas
+Django_Backend --> Docker : Contenedores
+@enduml
