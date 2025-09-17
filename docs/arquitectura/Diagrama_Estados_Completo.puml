@@ -1,0 +1,154 @@
+@startuml
+!theme plain
+
+title Diagrama de Estados - Sistema PPP UPeU
+
+' === ESTADOS DE PRÁCTICA ===
+
+state "Gestión de Prácticas Profesionales" as GestionPracticas {
+  
+  state "Estados de Práctica" as EstadosPractica {
+    [*] --> BORRADOR : Crear nueva práctica
+    
+    BORRADOR --> PENDIENTE : Enviar para revisión\n(Documentos completos)
+    BORRADOR --> BORRADOR : Guardar cambios
+    
+    PENDIENTE --> APROBADO : Coordinador aprueba\n(Validaciones OK)
+    PENDIENTE --> RECHAZADO : Coordinador rechaza\n(Con observaciones)
+    PENDIENTE --> OBSERVADO : Solicitar correcciones\n(Documentos incompletos)
+    
+    RECHAZADO --> BORRADOR : Corregir y reenviar\n(Atender observaciones)
+    OBSERVADO --> PENDIENTE : Completar documentos\n(Subsanar observaciones)
+    
+    APROBADO --> EN_PROGRESO : Iniciar práctica\n(Fecha de inicio)
+    APROBADO --> CANCELADO : Cancelar por empresa\n(Fuerza mayor)
+    
+    EN_PROGRESO --> SUSPENDIDO : Suspender temporalmente\n(Problemas en empresa)
+    EN_PROGRESO --> COMPLETADO : Finalizar práctica\n(480+ horas cumplidas)
+    EN_PROGRESO --> CANCELADO : Cancelar práctica\n(Abandono o problemas)
+    
+    SUSPENDIDO --> EN_PROGRESO : Reanudar práctica\n(Problema resuelto)
+    SUSPENDIDO --> CANCELADO : Cancelar definitivamente\n(No se puede resolver)
+    
+    COMPLETADO --> [*] : Práctica finalizada\n(Certificado emitido)
+    CANCELADO --> [*] : Proceso terminado\n(Registro archivado)
+  }
+  
+  note top of EstadosPractica
+    **Reglas de Negocio:**
+    • Solo prácticas APROBADAS pueden iniciarse
+    • Mínimo 480 horas para completar
+    • Coordinador EP autoriza cambios de estado
+    • Suspensiones requieren justificación
+  end note
+}
+
+' === ESTADOS DE DOCUMENTO ===
+
+state "Gestión de Documentos" as GestionDocumentos {
+  
+  state "Estados de Documento" as EstadosDocumento {
+    [*] --> SUBIDO : Documento cargado\n(Por estudiante)
+    
+    SUBIDO --> EN_REVISION : Asignado a secretaria\n(Notificación enviada)
+    
+    EN_REVISION --> VALIDADO : Documento aprobado\n(Cumple criterios)
+    EN_REVISION --> RECHAZADO : Documento rechazado\n(No cumple formato)
+    EN_REVISION --> OBSERVADO : Requiere correcciones\n(Información incompleta)
+    
+    RECHAZADO --> [*] : Proceso terminado\n(Nuevo documento requerido)
+    OBSERVADO --> SUBIDO : Documento corregido\n(Nueva versión)
+    VALIDADO --> [*] : Documento aprobado\n(Proceso completado)
+  }
+  
+  note bottom of EstadosDocumento
+    **Criterios de Validación:**
+    • Formato PDF/DOC válido
+    • Información completa y legible
+    • Firmas digitales cuando corresponda
+    • Tamaño máximo 5MB
+  end note
+}
+
+' === ESTADOS DE POSTULACIÓN ===
+
+state "Gestión de Oportunidades Laborales" as GestionOportunidades {
+  
+  state "Estados de Postulación" as EstadosPostulacion {
+    [*] --> POSTULADO : Estudiante postula\n(CV + Carta)
+    
+    POSTULADO --> EN_REVISION : Empresa revisa\n(Filtro inicial)
+    
+    EN_REVISION --> PRESELECCIONADO : Cumple requisitos\n(Pasa filtro)
+    EN_REVISION --> DESCARTADO : No cumple requisitos\n(Perfil no coincide)
+    
+    PRESELECCIONADO --> ENTREVISTA_PROGRAMADA : Citar a entrevista\n(Fecha y hora)
+    PRESELECCIONADO --> DESCARTADO : Descartado en segunda fase\n(Competencia)
+    
+    ENTREVISTA_PROGRAMADA --> ENTREVISTA_REALIZADA : Entrevista completada\n(Evaluación registrada)
+    ENTREVISTA_PROGRAMADA --> NO_SE_PRESENTO : Candidato ausente\n(Sin justificación)
+    
+    ENTREVISTA_REALIZADA --> SELECCIONADO : Candidato elegido\n(Oferta laboral)
+    ENTREVISTA_REALIZADA --> NO_SELECCIONADO : No elegido\n(Otro candidato mejor)
+    
+    SELECCIONADO --> CONTRATADO : Acepta oferta\n(Contrato firmado)
+    SELECCIONADO --> RECHAZA_OFERTA : Rechaza oferta\n(Condiciones no aceptables)
+    
+    CONTRATADO --> [*] : Proceso exitoso\n(Empleado activo)
+    DESCARTADO --> [*] : Proceso terminado\n(No seleccionado)
+    NO_SELECCIONADO --> [*] : Proceso terminado\n(Feedback enviado)
+    NO_SE_PRESENTO --> [*] : Proceso terminado\n(Oportunidad perdida)
+    RECHAZA_OFERTA --> [*] : Proceso terminado\n(Decisión del candidato)
+  }
+  
+  note right of EstadosPostulacion
+    **Proceso de Selección:**
+    • Filtro automático por requisitos
+    • Revisión manual por RRHH
+    • Entrevista técnica/personal
+    • Evaluación y decisión final
+    • Seguimiento post-contratación
+  end note
+}
+
+' === ESTADOS DE USUARIO ===
+
+state "Gestión de Usuarios" as GestionUsuarios {
+  
+  state "Estados de Usuario" as EstadosUsuario {
+    [*] --> REGISTRADO : Usuario creado\n(Datos básicos)
+    
+    REGISTRADO --> PENDIENTE_ACTIVACION : Email enviado\n(Verificación requerida)
+    
+    PENDIENTE_ACTIVACION --> ACTIVO : Email verificado\n(Primera configuración)
+    PENDIENTE_ACTIVACION --> EXPIRADO : Tiempo agotado\n(Reenviar activación)
+    
+    EXPIRADO --> PENDIENTE_ACTIVACION : Reenviar activación\n(Nuevo intento)
+    
+    ACTIVO --> SUSPENDIDO : Suspensión temporal\n(Violación de políticas)
+    ACTIVO --> INACTIVO : Desactivación manual\n(Solicitud del usuario)
+    ACTIVO --> BLOQUEADO : Actividad sospechosa\n(Seguridad)
+    
+    SUSPENDIDO --> ACTIVO : Suspensión levantada\n(Problema resuelto)
+    SUSPENDIDO --> ELIMINADO : Suspensión permanente\n(Violación grave)
+    
+    INACTIVO --> ACTIVO : Reactivación\n(Solicitud del usuario)
+    INACTIVO --> ELIMINADO : Eliminación definitiva\n(Solicitud formal)
+    
+    BLOQUEADO --> ACTIVO : Desbloqueo manual\n(Verificación de seguridad)
+    BLOQUEADO --> ELIMINADO : Actividad maliciosa\n(Eliminación de seguridad)
+    
+    ELIMINADO --> [*] : Usuario eliminado\n(Datos anonimizados)
+  }
+  
+  note left of EstadosUsuario
+    **Gestión de Accesos:**
+    • Verificación obligatoria por email
+    • Suspensiones por incumplimiento
+    • Bloqueos por seguridad
+    • Eliminación con anonimización
+    • Logs de auditoría completos
+  end note
+}
+
+@enduml

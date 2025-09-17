@@ -1,0 +1,204 @@
+@startuml
+
+title Diagrama de Casos de Uso Detallado - Sistema PPP UPeU
+
+' Definicion de actores
+actor Estudiante as EST
+actor "Supervisor Empresa" as SUP
+actor Secretaria as SEC
+actor "Coordinador EP" as COORD
+actor Administrador as ADMIN
+actor "Superadmin" as SUPER
+actor "Sistema SUNAT" as SUNAT
+actor "Sistema RENIEC" as RENIEC
+actor "Sistema SUNEDU" as SUNEDU
+
+' Paquetes de casos de uso
+package "Gestion de Practicas" {
+  usecase "Registrar Practica" as UC01
+  usecase "Subir Documentos" as UC02
+  usecase "Validar Documentos" as UC03
+  usecase "Aprobar Practica" as UC04
+  usecase "Supervisar Practica" as UC05
+  usecase "Evaluar Desempeno" as UC06
+  usecase "Generar Reportes" as UC07
+  usecase "Calificar Practica" as UC08
+  usecase "Emitir Certificado" as UC09
+}
+
+package "Gestion de Usuarios" {
+  usecase "Registrar Usuario" as UC10
+  usecase "Autenticar Usuario" as UC11
+  usecase "Gestionar Perfiles" as UC12
+  usecase "Asignar Roles" as UC13
+  usecase "Cambiar Contraseña" as UC14
+  usecase "Recuperar Cuenta" as UC15
+}
+
+package "Gestion de Empresas" {
+  usecase "Registrar Empresa" as UC16
+  usecase "Validar RUC" as UC17
+  usecase "Gestionar Convenios" as UC18
+  usecase "Asignar Supervisores" as UC19
+  usecase "Evaluar Empresas" as UC20
+}
+
+package "Oportunidades Laborales" {
+  usecase "Publicar Oportunidad" as UC21
+  usecase "Buscar Oportunidades" as UC22
+  usecase "Postular a Oportunidad" as UC23
+  usecase "Gestionar Postulaciones" as UC24
+  usecase "Subir CV" as UC25
+  usecase "Notificar Oportunidades" as UC26
+}
+
+package "Gestion Documental" {
+  usecase "Subir Archivos" as UC27
+  usecase "Validar Formatos" as UC28
+  usecase "Generar Documentos" as UC29
+  usecase "Firmar Digitalmente" as UC30
+  usecase "Archivar Documentos" as UC31
+}
+
+package "Reportes y Analytics" {
+  usecase "Generar Dashboard" as UC32
+  usecase "Exportar Reportes" as UC33
+  usecase "Analizar Metricas" as UC34
+  usecase "Monitorear Sistema" as UC35
+  usecase "Auditar Actividades" as UC36
+}
+
+package "Notificaciones" {
+  usecase "Enviar Email" as UC37
+  usecase "Notificar En Sistema" as UC38
+  usecase "Configurar Alertas" as UC39
+  usecase "Gestionar Suscripciones" as UC40
+}
+
+' Relaciones Estudiante
+EST --> UC01 : solicita
+EST --> UC02 : sube
+EST --> UC07 : genera
+EST --> UC11 : se autentica
+EST --> UC12 : gestiona
+EST --> UC14 : cambia
+EST --> UC22 : busca
+EST --> UC23 : postula
+EST --> UC25 : sube
+EST --> UC27 : sube
+
+' Relaciones Supervisor Empresa
+SUP --> UC05 : supervisa
+SUP --> UC06 : evalua
+SUP --> UC11 : se autentica
+SUP --> UC12 : gestiona
+SUP --> UC19 : es asignado
+SUP --> UC21 : publica
+
+' Relaciones Secretaria
+SEC --> UC03 : valida
+SEC --> UC10 : registra
+SEC --> UC11 : se autentica
+SEC --> UC12 : gestiona
+SEC --> UC16 : registra
+SEC --> UC24 : gestiona
+SEC --> UC28 : valida
+SEC --> UC31 : archiva
+SEC --> UC38 : notifica
+
+' Relaciones Coordinador EP
+COORD --> UC04 : aprueba
+COORD --> UC07 : genera
+COORD --> UC08 : califica
+COORD --> UC09 : emite
+COORD --> UC11 : se autentica
+COORD --> UC12 : gestiona
+COORD --> UC18 : gestiona
+COORD --> UC20 : evalua
+COORD --> UC29 : genera
+COORD --> UC32 : consulta
+COORD --> UC33 : exporta
+
+' Relaciones Administrador
+ADMIN --> UC10 : gestiona
+ADMIN --> UC11 : se autentica
+ADMIN --> UC12 : administra
+ADMIN --> UC13 : asigna
+ADMIN --> UC15 : recupera
+ADMIN --> UC32 : consulta
+ADMIN --> UC33 : exporta
+ADMIN --> UC34 : analiza
+ADMIN --> UC35 : monitorea
+ADMIN --> UC36 : audita
+ADMIN --> UC39 : configura
+ADMIN --> UC40 : gestiona
+
+' Relaciones Superadmin
+SUPER --> UC10 : administra
+SUPER --> UC11 : se autentica
+SUPER --> UC12 : administra completa
+SUPER --> UC13 : asigna todos
+SUPER --> UC32 : acceso total
+SUPER --> UC33 : exporta todos
+SUPER --> UC34 : analiza completo
+SUPER --> UC35 : monitorea completo
+SUPER --> UC36 : audita completo
+
+' Relaciones Sistemas Externos
+UC17 --> SUNAT : valida RUC
+UC10 --> RENIEC : valida DNI
+UC16 --> SUNEDU : valida universidad
+
+' Extensiones y inclusiones
+UC01 ..> UC02 : <<include>>
+UC01 ..> UC11 : <<include>>
+UC03 ..> UC28 : <<include>>
+UC04 ..> UC03 : <<include>>
+UC05 ..> UC06 : <<extend>>
+UC08 ..> UC09 : <<extend>>
+UC16 ..> UC17 : <<include>>
+UC21 ..> UC26 : <<include>>
+UC23 ..> UC25 : <<extend>>
+UC27 ..> UC28 : <<include>>
+UC32 ..> UC34 : <<include>>
+UC37 ..> UC38 : <<extend>>
+
+' Generalizaciones
+UC11 <|-- "Autenticacion Basica"
+UC11 <|-- "Autenticacion Avanzada"
+UC12 <|-- "Perfil Estudiante"
+UC12 <|-- "Perfil Supervisor"
+UC12 <|-- "Perfil Coordinador"
+
+' Notas explicativas
+note right of UC01
+  Incluye validacion de requisitos:
+  - Semestre 6+
+  - Promedio >= 12.0
+  - Documentos completos
+end note
+
+note right of UC04
+  Requiere aprobacion de:
+  - Documentos validados
+  - Convenio vigente
+  - Supervisor asignado
+end note
+
+note right of UC21
+  Tipos de oportunidades:
+  - Practicas profesionales
+  - Trabajos part-time
+  - Practicas pre-profesionales
+  - Proyectos especiales
+end note
+
+note right of UC32
+  Dashboard incluye:
+  - Metricas de practicas
+  - Estado de documentos
+  - Oportunidades activas
+  - Usuarios conectados
+end note
+
+@enduml

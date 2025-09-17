@@ -120,6 +120,55 @@ Proceso de validación por parte de la secretaria con verificación de permisos 
 #### 5.5 Aprobación de Práctica
 Flujo de aprobación por el coordinador con cambio de estado y notificaciones a stakeholders.
 
+### 6. Diagrama de Actividades
+**Archivo:** `Diagrama_Actividades.puml`
+
+**Tipo UML:** **Diagrama de Actividad**
+
+Documenta los procesos de negocio y workflows principales del sistema PPP UPeU:
+
+#### 6.1 Procesos Principales Modelados:
+
+**1. Proceso Completo de Práctica Profesional**
+- Flujo end-to-end desde verificación de requisitos hasta completación
+- Incluye validaciones, aprobaciones y seguimiento continuo
+- Maneja excepciones y flujos alternativos
+
+**2. Proceso de Validación de Documentos**
+- Workflow de revisión y aprobación por secretarias
+- Estados: PENDIENTE → VALIDADO/RECHAZADO/OBSERVADO
+- Notificaciones automáticas y logs de auditoría
+
+**3. Proceso de Postulación a Oportunidades Laborales**
+- Desde publicación de oportunidad hasta contratación
+- Incluye preselección, entrevistas y decisiones finales
+- Gestión de múltiples postulaciones simultáneas
+
+**4. Proceso de Gestión de Usuarios y Roles**
+- Administración completa de usuarios del sistema
+- Validaciones con servicios externos (RENIEC/SUNAT)
+- Gestión de permisos y roles por escuela
+
+**5. Proceso de Monitoreo y Auditoría**
+- Supervisión continua del sistema en tiempo real
+- Detección de anomalías y alertas automáticas
+- Auditoría de seguridad y integridad de datos
+
+**6. Proceso de Backup y Recuperación**
+- Gestión automatizada de copias de seguridad
+- Procedimientos de recuperación ante desastres
+- Validación de integridad y retención de datos
+
+#### 6.2 Características del Diagrama:
+- ✅ **Decisiones lógicas** con múltiples caminos de ejecución
+- ✅ **Procesos paralelos** usando fork/join para optimización
+- ✅ **Loops y repeticiones** para procesos continuos de monitoreo
+- ✅ **Swimlanes** para mostrar responsabilidades por rol
+- ✅ **Manejo de excepciones** y flujos de error
+- ✅ **Puntos de sincronización** entre procesos distribuidos
+- ✅ **Actividades en background** para tareas asíncronas
+Flujo de aprobación por el coordinador con cambio de estado y notificaciones a stakeholders.
+
 ## 🛠️ Herramientas para Visualización
 
 Para visualizar los diagramas PlantUML:
@@ -160,6 +209,9 @@ Los diagramas deben actualizarse cuando:
 | `Modelo_BD_Completo.puml` | Modelo completo de BD | Datos |
 | `Diagrama_Clases_Robusto.puml` | Clases y arquitectura hexagonal | Código |
 | `Secuencias_Casos_Uso.puml` | Secuencias de casos de uso | Comportamiento |
+| `Diagrama_Actividades.puml` | **Procesos de negocio y workflows** | **Comportamiento** |
+| `Diagrama_Estados_Completo.puml` | **Estados y transiciones del sistema** | **Comportamiento** |
+| `crear_bd_completa.sql` | Script SQL completo para PostgreSQL | Base de Datos |
 | `C4_Contexto_Contenedores.puml` | Versión original (legacy) | Legacy |
 | `Diagrama_Clases.puml` | Versión original (legacy) | Legacy |
 | `Entidades_Estados.puml` | Versión original (legacy) | Legacy |

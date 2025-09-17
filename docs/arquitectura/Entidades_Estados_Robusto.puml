@@ -185,15 +185,22 @@ oportunidad ||--o{ postulacion
 
 ' === DIAGRAMA DE ESTADOS ===
 
-state "Estado de Práctica" as EstadoPractica {
-  [*] --> BORRADOR : Crear práctica
-  BORRADOR --> PENDIENTE : Enviar para revisión
-  PENDIENTE --> APROBADO : Coordinador aprueba
-  PENDIENTE --> RECHAZADO : Coordinador rechaza
-  APROBADO --> EN_PROGRESO : Iniciar práctica
-  EN_PROGRESO --> COMPLETADO : Finalizar práctica
-  RECHAZADO --> BORRADOR : Corregir y reenviar
-  COMPLETADO --> [*]
-}
+note top of practica : Estados de Práctica
+note as estado_practica
+**Estados de Práctica:**
+• BORRADOR: Práctica en proceso de creación
+• PENDIENTE: Enviada para revisión
+• APROBADO: Aprobada por coordinador
+• EN_PROGRESO: Práctica en ejecución
+• COMPLETADO: Práctica finalizada
+• RECHAZADO: Práctica rechazada
+
+**Flujo de Estados:**
+BORRADOR → PENDIENTE → APROBADO → EN_PROGRESO → COMPLETADO
+    ↓           ↓
+RECHAZADO → BORRADOR
+end note
+
+estado_practica .. practica
 
 @enduml

@@ -1,0 +1,165 @@
+@startuml
+
+title Diagramas de Actividad - Sistema PPP UPeU
+
+' Proceso Principal de Practica
+
+start
+
+:Estudiante revisa requisitos;
+
+if (Cumple requisitos?) then (Si)
+  :Buscar empresa para practica;
+  :Contactar supervisor;
+  :Preparar documentos;
+  :Crear solicitud en sistema;
+  :Subir documentos requeridos;
+  
+  :Secretaria revisa documentos;
+  
+  if (Documentos validos?) then (Si)
+    :Coordinador EP revisa solicitud;
+    
+    if (Practica aprobada?) then (Si)
+      :Generar convenio con empresa;
+      :Iniciar practica;
+      :Registrar horas trabajadas;
+      :Supervisor evalua progreso;
+      :Enviar reportes periodicos;
+      :Coordinador revisa reportes;
+      :Enviar reporte final;
+      :Evaluacion final;
+      :Emitir calificacion;
+      :Practica completada exitosamente;
+    else (No)
+      :Notificar rechazo;
+      :Corregir solicitud;
+    endif
+  else (No)
+    :Solicitar correccion de documentos;
+    :Reenviar documentos;
+  endif
+else (No)
+  :Notificar requisitos faltantes;
+  :Completar requisitos;
+endif
+
+stop
+
+newpage
+
+' Proceso de Validacion de Documentos
+
+start
+
+:Documento subido al sistema;
+:Sistema notifica a secretaria;
+:Secretaria revisa documento;
+
+if (Documento correcto?) then (Si)
+  :Marcar como VALIDADO;
+  :Notificar aprobacion;
+else (No)
+  :Marcar como RECHAZADO;
+  :Solicitar correccion;
+endif
+
+stop
+
+newpage
+
+' Proceso de Postulacion Laboral
+
+start
+
+:Empresa publica oportunidad;
+:Sistema notifica estudiantes;
+:Estudiante revisa oportunidad;
+
+if (Interesado?) then (Si)
+  if (Cumple requisitos?) then (Si)
+    :Subir CV actualizado;
+    :Enviar postulacion;
+    :Empresa revisa postulaciones;
+    
+    if (Preseleccionado?) then (Si)
+      :Programar entrevista;
+      :Realizar entrevista;
+      
+      if (Entrevista exitosa?) then (Si)
+        :Recibir oferta laboral;
+        
+        if (Acepta oferta?) then (Si)
+          :Iniciar contratacion;
+        else (No)
+          :Rechazar oferta;
+        endif
+      else (No)
+        :Entrevista no exitosa;
+      endif
+    else (No)
+      :No preseleccionado;
+    endif
+  else (No)
+    :No cumple requisitos;
+  endif
+else (No)
+  :No interesado;
+endif
+
+stop
+
+newpage
+
+' Swimlanes por Roles
+
+title Workflow por Roles
+
+|Estudiante|
+start
+:Revisar requisitos;
+:Buscar empresa;
+:Preparar documentos;
+:Enviar solicitud;
+
+|Secretaria|
+:Recibir notificacion;
+:Revisar documentos;
+if (Documentos OK?) then (si)
+  :Aprobar documentos;
+else (no)
+  :Rechazar documentos;
+  |Estudiante|
+  :Corregir documentos;
+  |Secretaria|
+endif
+
+|Coordinador|
+:Revisar solicitud;
+if (Viable?) then (si)
+  :Aprobar practica;
+else (no)
+  :Rechazar practica;
+  stop
+endif
+
+|Supervisor|
+:Confirmar disponibilidad;
+:Supervisar practica;
+:Evaluar desempeño;
+
+|Estudiante|
+:Iniciar practica;
+:Cumplir horarios;
+:Enviar reportes;
+
+|Coordinador|
+:Revisar reportes;
+:Calificar practica;
+:Emitir certificado;
+
+|Estudiante|
+:Recibir calificacion;
+stop
+
+@enduml
