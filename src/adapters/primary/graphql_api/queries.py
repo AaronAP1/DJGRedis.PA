@@ -65,8 +65,9 @@ class Query(graphene.ObjectType):
     def resolve_users(self, info, **kwargs):
         """Resuelve la lista de usuarios."""
         user = info.context.user
-        if user.role in ['COORDINADOR', 'ADMINISTRADOR']:
-            return User.objects.all()
+        # Solo ADMINISTRADOR puede ver listado y no debe verse a sí mismo
+        if user.role == 'ADMINISTRADOR':
+            return User.objects.exclude(id=user.id).order_by('created_at')
         return User.objects.none()
 
     @login_required

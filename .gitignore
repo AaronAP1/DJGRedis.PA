@@ -100,3 +100,6 @@ docs/_build/
 # Database dumps
 *.sql
 *.dump
+.venv/
+.env
+__pycache__/

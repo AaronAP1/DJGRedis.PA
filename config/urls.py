@@ -16,10 +16,20 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView
+from django.views.decorators.cache import never_cache
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularSwaggerView,
+    SpectacularRedocView,
+)
+from rest_framework.permissions import AllowAny
 from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
+    # Redirect root to API docs (avoid 404 at '/')
+    path('', RedirectView.as_view(url='/api/docs/', permanent=False)),
     path('admin/', admin.site.urls),
     # API REST (legacy/fallback)
     path('api/v1/auth/', include('src.adapters.primary.rest_api.auth.urls')),
@@ -27,6 +37,10 @@ urlpatterns = [
     path('api/v1/practices/', include('src.adapters.primary.rest_api.practices.urls')),
     path('api/v1/companies/', include('src.adapters.primary.rest_api.companies.urls')),
     path('api/v1/reports/', include('src.adapters.primary.rest_api.reports.urls')),
+    # OpenAPI & Swagger
+    path('api/schema/', never_cache(SpectacularAPIView.as_view(permission_classes=[AllowAny], authentication_classes=[])), name='schema'),
+    path('api/docs/', never_cache(SpectacularSwaggerView.as_view(url_name='schema', permission_classes=[AllowAny], authentication_classes=[])), name='swagger-ui'),
+    path('api/redoc/', never_cache(SpectacularRedocView.as_view(url_name='schema', permission_classes=[AllowAny], authentication_classes=[])), name='redoc'),
     # API GraphQL (principal)
     path('api/', include('src.adapters.primary.graphql_api.urls')),
 ]

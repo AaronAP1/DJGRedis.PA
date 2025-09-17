@@ -9,12 +9,11 @@ from .queries import Query
 from .mutations import Mutation
 
 
-class Schema(graphene.Schema):
+class _Schema(graphene.Schema):
     """Schema principal que combina queries y mutations."""
-    
     query = Query
     mutation = Mutation
 
 
-# Schema para usar en Django settings
-schema = Schema
+# Schema para usar en Django settings (instancia)
+schema = graphene.Schema(query=Query, mutation=Mutation)

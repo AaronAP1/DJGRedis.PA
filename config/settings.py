@@ -27,6 +27,9 @@ DEBUG = config('DEBUG', default=True, cast=bool)
 # Allowed hosts configuration
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
 
+# Allowed email domains for user accounts
+ALLOWED_EMAIL_DOMAINS = [d.strip() for d in config('ALLOWED_EMAIL_DOMAINS', default='upeu.edu.pe').split(',')]
+
 # Application definition
 DJANGO_APPS = [
     'django.contrib.admin',
@@ -44,6 +47,9 @@ THIRD_PARTY_APPS = [
     'django_filters',
     'corsheaders',
     'django_extensions',
+    'graphql_jwt.refresh_token',
+    'axes',
+    'drf_spectacular',
 ]
 
 LOCAL_APPS = [
@@ -64,6 +70,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'axes.middleware.AxesMiddleware',
     'src.infrastructure.middleware.rate_limit.RateLimitMiddleware',
     'src.infrastructure.middleware.security.SecurityMiddleware',
 ]
@@ -102,24 +109,41 @@ DATABASES = {
     }
 }
 
-# Redis Cache
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': config('REDIS_URL', default='redis://localhost:6379/0'),
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+# Axes configuration (basic)
+AXES_ENABLED = True
+AXES_FAILURE_LIMIT = config('AXES_FAILURE_LIMIT', default=30, cast=int)
+AXES_COOLOFF_TIME = timedelta(hours=1)
+AXES_LOCKOUT_PARAMETERS = ['username']
+AXES_RESET_ON_SUCCESS = True
+
+# Cache: LocMem por defecto (habilitar Redis con USE_REDIS_CACHE=True)
+USE_REDIS_CACHE = config('USE_REDIS_CACHE', default=False, cast=bool)
+if USE_REDIS_CACHE:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': config('REDIS_URL', default='redis://localhost:6379/0'),
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            }
         }
     }
-}
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-dev-cache',
+        }
+    }
 
-# Celery Configuration
-CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/1')
-CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://localhost:6379/1')
+# Celery (asynchronous tasks)
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default=config('REDIS_URL', default='redis://localhost:6379/0'))
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=CELERY_BROKER_URL)
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'America/Lima'
+CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=DEBUG, cast=bool)
+CELERY_TIMEZONE = config('CELERY_TIMEZONE', default='America/Lima')
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
@@ -155,7 +179,7 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_DIRS = [BASE_DIR / 'static']
+STATICFILES_DIRS = [BASE_DIR / 'static'] if (BASE_DIR / 'static').exists() else []
 
 # Media files
 MEDIA_URL = '/media/'
@@ -166,15 +190,24 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Authentication backends
+AUTHENTICATION_BACKENDS = [
+    'graphql_jwt.backends.JSONWebTokenBackend',
+    'django.contrib.auth.backends.ModelBackend',
+    'axes.backends.AxesStandaloneBackend',
+]
+
 # REST Framework configuration
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'src.infrastructure.security.cookie_jwt.CookieJWTAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_THROTTLE_CLASSES': [
@@ -197,10 +230,10 @@ REST_FRAMEWORK = {
 
 # JWT Configuration
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=5),
+    'ROTATE_REFRESH_TOKENS': False,
+    'BLACKLIST_AFTER_ROTATION': False,
     'UPDATE_LAST_LOGIN': True,
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': config('JWT_SECRET_KEY', default=SECRET_KEY),
@@ -310,9 +343,73 @@ GRAPHQL_JWT = {
     'JWT_SECRET_KEY': config('JWT_SECRET_KEY', default=SECRET_KEY),
     'JWT_VERIFY_EXPIRATION': True,
     'JWT_LONG_RUNNING_REFRESH_TOKEN': True,
-    'JWT_EXPIRATION_DELTA': timedelta(minutes=60),
-    'JWT_REFRESH_EXPIRATION_DELTA': timedelta(days=7),
+    'JWT_EXPIRATION_DELTA': timedelta(minutes=15),
+    'JWT_REFRESH_EXPIRATION_DELTA': timedelta(days=5),
+    'JWT_REUSE_REFRESH_TOKENS': True,
+    # Allow unauthenticated access to these mutations
+    'JWT_ALLOW_ANY_CLASSES': [
+        'graphql_jwt.mutations.ObtainJSONWebToken',
+        'graphql_jwt.mutations.Verify',
+        'graphql_jwt.mutations.Refresh',
+        'src.adapters.primary.graphql_api.mutations.TokenAuth',
+        'src.adapters.primary.graphql_api.mutations.ForgotPassword',
+        'src.adapters.primary.graphql_api.mutations.ResetPasswordWithCode',
+    ],
+    # Cookie settings for jwt_cookie decorator
+    'JWT_COOKIE_SECURE': not DEBUG,
+    'JWT_COOKIE_SAMESITE': 'Strict',
+    'JWT_COOKIE_NAME': 'JWT',
+    'JWT_REFRESH_TOKEN_COOKIE_NAME': 'JWT_REFRESH_TOKEN',
+    # Usamos /api/ para que las cookies lleguen a REST (/api/v1/...) y GraphQL
+    'JWT_COOKIE_PATH': '/api/',
 }
+
+# Cookie names para DRF (REST) usando SimpleJWT, para no chocar con la cookie de GraphQL
+DRF_JWT_COOKIE_NAME = 'DRF_JWT'
+DRF_JWT_REFRESH_COOKIE_NAME = 'DRF_JWT_REFRESH'
+
+# Email configuration
+EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
+EMAIL_HOST = config('EMAIL_HOST', default='smtp-relay.brevo.com')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default=config('BREVO_SMTP_USER', default=''))
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default=config('BREVO_SMTP_PASS', default=''))
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='no-reply@upeu.edu.pe')
+EMAIL_ENABLED = config('EMAIL_ENABLED', default=False, cast=bool)
+
+# reCAPTCHA settings
+# Nota: Secret visible solo para desarrollo temporal. En producción usar variables de entorno.
+RECAPTCHA_ENABLED = config('RECAPTCHA_ENABLED', default=False, cast=bool)
+RECAPTCHA_SECRET = config('RECAPTCHA_SECRET', default='6LeJF8srAAAAAD5yvB61_8lMb67T2ojpzB7roMHq')
+# Token especial para bypass en desarrollo (GraphiQL/Postman) cuando DEBUG=True
+RECAPTCHA_DEV_BYPASS_TOKEN = config('RECAPTCHA_DEV_BYPASS_TOKEN', default='dev-bypass')
+
+# Frontend URL for password reset links
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
+
+# Bootstrap de datos demo (usuarios por rol) tras migrate si está activo
+BOOTSTRAP_DEMO_DATA = config('BOOTSTRAP_DEMO_DATA', default=False, cast=bool)
+
+# Admin por defecto (creación si no existe)
+DEFAULT_ADMIN_EMAIL = config('DEFAULT_ADMIN_EMAIL', default='admin@upeu.edu.pe')
+DEFAULT_ADMIN_PASSWORD = config('DEFAULT_ADMIN_PASSWORD', default='Admin123!')
 
 # Create logs directory
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
+
+# drf-spectacular settings
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Gestión de Prácticas - API',
+    'DESCRIPTION': 'Documentación de endpoints REST para autenticación, usuarios y gestión de prácticas.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    # Usa servidor relativo para que Swagger ejecute requests contra el mismo host de la página (evita localhost vs 127.0.0.1)
+    'SERVERS': [
+        {'url': '/'},
+    ],
+    # Swagger UI tweaks (dev convenience)
+    'SWAGGER_UI_SETTINGS': {
+        'persistAuthorization': True,
+    },
+}

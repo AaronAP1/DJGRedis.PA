@@ -1,0 +1,1 @@
+# REST companies app placeholder

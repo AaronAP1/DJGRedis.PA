@@ -5,7 +5,7 @@ Tipos GraphQL para el sistema de gestión de prácticas profesionales.
 import graphene
 from graphene_django import DjangoObjectType
 from graphene_django.filter import DjangoFilterConnectionField
-from django_filters import FilterSet, CharFilter, DateFilter
+from django_filters import FilterSet, CharFilter, DateFilter, NumberFilter
 from src.adapters.secondary.database.models import (
     User, Student, Company, Supervisor, Practice, Document, Notification
 )
@@ -31,15 +31,54 @@ class UserType(DjangoObjectType):
         interfaces = (graphene.relay.Node,)
         filterset_class = UserFilter
         fields = (
-            'id', 'email', 'first_name', 'last_name', 'role', 
-            'is_active', 'last_login', 'created_at', 'updated_at'
+            'id', 'email', 'username', 'first_name', 'last_name', 'role', 
+            'is_active', 'last_login', 'created_at', 'updated_at', 'photo'
         )
 
     full_name = graphene.String()
+    photo_url = graphene.String()
+    # Alias en español para consumo de frontend
+    nombre_completo = graphene.String()
+    nombres = graphene.String()
+    apellidos = graphene.String()
+    # Exponer código de estudiante cuando el usuario es PRACTICANTE
+    codigo_estudiante = graphene.String()
     
     def resolve_full_name(self, info):
         """Resuelve el nombre completo."""
         return self.get_full_name()
+
+    def resolve_photo_url(self, info):
+        request = info.context
+        try:
+            if getattr(self, 'photo', None):
+                url = self.photo.url
+                if url and hasattr(request, 'build_absolute_uri'):
+                    return request.build_absolute_uri(url)
+                return url
+        except Exception:
+            return None
+        return None
+
+    def resolve_nombre_completo(self, info):
+        return self.get_full_name()
+
+    def resolve_nombres(self, info):
+        return self.first_name
+
+    def resolve_apellidos(self, info):
+        return self.last_name
+
+    def resolve_codigo_estudiante(self, info):
+        """Retorna el código de estudiante si el usuario es PRACTICANTE."""
+        try:
+            if getattr(self, 'role', None) == 'PRACTICANTE':
+                sp = getattr(self, 'student_profile', None)
+                if sp and getattr(sp, 'codigo_estudiante', None):
+                    return sp.codigo_estudiante
+        except Exception:
+            return None
+        return None
 
 
 class StudentFilter(FilterSet):
@@ -67,13 +106,13 @@ class StudentType(DjangoObjectType):
         )
 
     puede_realizar_practica = graphene.Boolean()
-    año_ingreso = graphene.Int()
+    anio_ingreso = graphene.Int()
     
     def resolve_puede_realizar_practica(self, info):
         """Resuelve si puede realizar práctica."""
         return self.puede_realizar_practica
 
-    def resolve_año_ingreso(self, info):
+    def resolve_anio_ingreso(self, info):
         """Resuelve el año de ingreso."""
         return self.año_ingreso
 
@@ -99,9 +138,12 @@ class CompanyType(DjangoObjectType):
         filterset_class = CompanyFilter
         fields = (
             'id', 'ruc', 'razon_social', 'nombre_comercial', 'direccion',
-            'telefono', 'email', 'sector_economico', 'tamaño_empresa',
+            'telefono', 'email', 'sector_economico',
             'status', 'fecha_validacion', 'created_at', 'updated_at'
         )
+
+    # Exponer nombre ASCII mapeando al campo Django con ñ
+    tamano_empresa = graphene.String(source='tamaño_empresa')
 
     nombre_para_mostrar = graphene.String()
     puede_recibir_practicantes = graphene.Boolean()
@@ -120,9 +162,12 @@ class SupervisorFilter(FilterSet):
     cargo = CharFilter(lookup_expr='icontains')
     documento_numero = CharFilter(lookup_expr='icontains')
 
+    # Exponer filtro ASCII mapeado al campo Django con ñ
+    anios_experiencia = NumberFilter(field_name='años_experiencia')
+
     class Meta:
         model = Supervisor
-        fields = ['cargo', 'documento_numero', 'años_experiencia']
+        fields = ['cargo', 'documento_numero']
 
 
 class SupervisorType(DjangoObjectType):
@@ -134,8 +179,11 @@ class SupervisorType(DjangoObjectType):
         filterset_class = SupervisorFilter
         fields = (
             'id', 'user', 'company', 'documento_tipo', 'documento_numero',
-            'cargo', 'telefono', 'años_experiencia', 'created_at', 'updated_at'
+            'cargo', 'telefono', 'created_at', 'updated_at'
         )
+
+    # Exponer nombre ASCII mapeando al campo Django con ñ
+    anios_experiencia = graphene.Int(source='años_experiencia')
 
 
 class PracticeFilter(FilterSet):
@@ -211,16 +259,18 @@ class DocumentType(DjangoObjectType):
         interfaces = (graphene.relay.Node,)
         filterset_class = DocumentFilter
         fields = (
-            'id', 'practice', 'tipo', 'nombre_archivo', 'tamaño_bytes',
+            'id', 'practice', 'tipo', 'nombre_archivo',
             'mime_type', 'subido_por', 'aprobado', 'fecha_aprobacion',
             'aprobado_por', 'created_at', 'updated_at'
         )
 
-    tamaño_legible = graphene.String()
+    # Exponer nombres ASCII mapeando a campos/propiedades con acentos
+    tamano_bytes = graphene.Int(source='tamaño_bytes')
+    tamano_legible = graphene.String()
     es_imagen = graphene.Boolean()
     es_pdf = graphene.Boolean()
     
-    def resolve_tamaño_legible(self, info):
+    def resolve_tamano_legible(self, info):
         """Resuelve el tamaño legible."""
         return self.tamaño_legible
 
@@ -266,16 +316,37 @@ class NotificationType(DjangoObjectType):
 class UserInput(graphene.InputObjectType):
     """Input para crear/actualizar usuario."""
     email = graphene.String(required=True)
+    username = graphene.String()
     first_name = graphene.String(required=True)
     last_name = graphene.String(required=True)
     role = graphene.String(required=True)
     password = graphene.String()
     is_active = graphene.Boolean()
+    # Solo para rol PRACTICANTE (creación manual)
+    codigo_estudiante = graphene.String()
+
+
+class UserUpdateInput(graphene.InputObjectType):
+    """Input para actualizar usuario (todos los campos opcionales)."""
+    email = graphene.String()
+    username = graphene.String()
+    first_name = graphene.String()
+    last_name = graphene.String()
+    role = graphene.String()
+    password = graphene.String()
+    is_active = graphene.Boolean()
+
+
+class ProfileInput(graphene.InputObjectType):
+    """Input para actualizar el perfil del usuario autenticado."""
+    first_name = graphene.String()
+    last_name = graphene.String()
+    username = graphene.String()
 
 
 class StudentInput(graphene.InputObjectType):
     """Input para crear/actualizar estudiante."""
-    user_data = graphene.Field(UserInput)
+    user_id = graphene.ID(required=True)
     codigo_estudiante = graphene.String(required=True)
     documento_tipo = graphene.String(required=True)
     documento_numero = graphene.String(required=True)
@@ -295,7 +366,7 @@ class CompanyInput(graphene.InputObjectType):
     telefono = graphene.String()
     email = graphene.String()
     sector_economico = graphene.String()
-    tamaño_empresa = graphene.String()
+    tamano_empresa = graphene.String()
 
 
 class PracticeInput(graphene.InputObjectType):
