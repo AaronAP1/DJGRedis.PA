@@ -364,6 +364,10 @@ GRAPHQL_JWT = {
     'JWT_COOKIE_PATH': '/api/',
 }
 
+# Cookie names para DRF (REST) usando SimpleJWT, para no chocar con la cookie de GraphQL
+DRF_JWT_COOKIE_NAME = 'DRF_JWT'
+DRF_JWT_REFRESH_COOKIE_NAME = 'DRF_JWT_REFRESH'
+
 # Email configuration
 EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
 EMAIL_HOST = config('EMAIL_HOST', default='smtp-relay.brevo.com')
@@ -400,4 +404,12 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'Documentación de endpoints REST para autenticación, usuarios y gestión de prácticas.',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    # Usa servidor relativo para que Swagger ejecute requests contra el mismo host de la página (evita localhost vs 127.0.0.1)
+    'SERVERS': [
+        {'url': '/'},
+    ],
+    # Swagger UI tweaks (dev convenience)
+    'SWAGGER_UI_SETTINGS': {
+        'persistAuthorization': True,
+    },
 }

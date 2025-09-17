@@ -15,10 +15,13 @@ def verify_recaptcha(token: str, remote_ip: str = None) -> bool:
     if not getattr(settings, 'RECAPTCHA_ENABLED', False):
         return True
 
-    # Bypass en desarrollo: si DEBUG=True y token coincide con RECAPTCHA_DEV_BYPASS_TOKEN
+    # Bypass en desarrollo endurecido:
+    # Solo permitir si DEBUG=True y el token de bypass es personalizado (no vacío, no 'dev-bypass', no '__DISABLED__').
     try:
         bypass_token = getattr(settings, 'RECAPTCHA_DEV_BYPASS_TOKEN', 'dev-bypass')
-        if getattr(settings, 'DEBUG', False) and token == bypass_token:
+        debug_mode = getattr(settings, 'DEBUG', False)
+        custom_bypass = bool(bypass_token) and bypass_token not in ('dev-bypass', '__DISABLED__')
+        if debug_mode and custom_bypass and token == bypass_token:
             return True
     except Exception:
         pass

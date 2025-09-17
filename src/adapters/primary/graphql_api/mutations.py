@@ -30,11 +30,12 @@ import imghdr
 import time
 import requests
 from urllib.parse import urlparse
+from rest_framework_simplejwt.tokens import RefreshToken as DRFRefreshToken
 
 from .types import (
     UserType, StudentType, CompanyType, SupervisorType,
     PracticeType, DocumentType, NotificationType,
-    UserInput, ProfileInput, StudentInput, CompanyInput,
+    UserInput, UserUpdateInput, ProfileInput, StudentInput, CompanyInput,
     PracticeInput
 )
 from src.adapters.secondary.database.models import (
@@ -49,6 +50,32 @@ except Exception:  # pragma: no cover
 
 User = get_user_model()
 
+
+# Utilidad: normaliza un ID aceptando tanto Global ID (Relay) como UUID crudo
+def _resolve_real_id(raw_id: str) -> str:
+    """Devuelve el UUID real desde un Global ID o el propio valor si ya es UUID.
+    Limpia espacios y comillas tipográficas que a veces llegan desde el navegador.
+    """
+    try:
+        s = str(raw_id or '').strip()
+    except Exception:
+        s = ''
+    if not s:
+        return ''
+    # Eliminar comillas tipográficas u otros delimitadores extraños
+    for ch in ('\u201c', '\u201d', '\u00ab', '\u00bb', '“', '”', '«', '»'):
+        s = s.replace(ch, '')
+    s = s.strip()
+    if not s:
+        return ''
+    # Intentar decodificar como Global ID (Relay)
+    try:
+        _type, decoded = from_global_id(s)
+        if decoded:
+            return decoded
+    except Exception:
+        pass
+    return s
 
 # ===== MUTATIONS PARA USUARIOS =====
 class CreateUser(graphene.Mutation):
@@ -139,7 +166,7 @@ class UpdateUser(graphene.Mutation):
     
     class Arguments:
         id = graphene.ID(required=True)
-        input = UserInput(required=True)
+        input = UserUpdateInput(required=True)
     
     success = graphene.Boolean()
     user = graphene.Field(UserType)
@@ -153,10 +180,9 @@ class UpdateUser(graphene.Mutation):
             return UpdateUser(success=False, message="Solo ADMINISTRADOR puede actualizar usuarios")
         
         try:
-            try:
-                _, real_id = from_global_id(id)
-            except Exception:
-                real_id = id
+            real_id = _resolve_real_id(id)
+            if not real_id:
+                return UpdateUser(success=False, message="ID inválido")
             target_user = User.objects.get(id=real_id)
             
             # Actualizar campos
@@ -250,7 +276,7 @@ class TokenAuth(graphene.Mutation):
         username = graphene.String(required=False)
         email = graphene.String(required=False)
         password = graphene.String(required=True)
-        recaptcha_token = graphene.String(required=False)
+        recaptcha_token = graphene.String(required=True)
 
     success = graphene.Boolean()
     token = graphene.String()
@@ -405,6 +431,7 @@ class TokenAuth(graphene.Mutation):
         user = target_user
 
         # Generar tokens
+        # 1) Tokens GraphQL (para compatibilidad con clientes GraphQL)
         token = graphql_jwt.shortcuts.get_token(user)
         refresh_value = None
         try:
@@ -414,12 +441,29 @@ class TokenAuth(graphene.Mutation):
         except Exception:
             refresh_value = None
 
+        # 2) Tokens SimpleJWT (para REST & Swagger vía cookie)
+        simple_access = None
+        simple_refresh = None
+        try:
+            srt = DRFRefreshToken.for_user(user)
+            simple_refresh = str(srt)
+            simple_access = str(srt.access_token)
+        except Exception:
+            simple_access = None
+            simple_refresh = None
+
         # Resetear contador de fallos al autenticar correctamente
         cache.delete(key_attempts)
 
-        # Poner tokens en el request para que la vista pueda setear cookies HttpOnly
+        # Poner tokens en el request para que la vista GraphQL pueda setear cookies HttpOnly
         try:
-            setattr(request, '_jwt_tokens', {'access': token, 'refresh': refresh_value})
+            # Enviar ambos: GraphQL (para GraphQL) y DRF (para REST)
+            setattr(request, '_jwt_tokens', {
+                'graphql_access': token,
+                'graphql_refresh': refresh_value,
+                'drf_access': simple_access,
+                'drf_refresh': simple_refresh,
+            })
         except Exception:
             pass
 
@@ -599,7 +643,7 @@ class ForgotPassword(graphene.Mutation):
 
     class Arguments:
         email = graphene.String(required=True)
-        recaptcha_token = graphene.String(required=False)
+        recaptcha_token = graphene.String(required=True)
 
     success = graphene.Boolean()
     message = graphene.String()
@@ -611,7 +655,7 @@ class ForgotPassword(graphene.Mutation):
     def mutate(root, info, email, recaptcha_token=None):
         request = info.context
 
-        # reCAPTCHA
+        # reCAPTCHA requerido para Forgot Password
         if getattr(settings, 'RECAPTCHA_ENABLED', False):
             if not verify_recaptcha(recaptcha_token, request.META.get('REMOTE_ADDR')):
                 return ForgotPassword(success=False, message='reCAPTCHA inválido')
@@ -693,9 +737,7 @@ class ResetPasswordWithCode(graphene.Mutation):
     @allow_any
     def mutate(root, info, email, code, new_password, confirm_password, recaptcha_token=None):
         request = info.context
-        if getattr(settings, 'RECAPTCHA_ENABLED', False):
-            if not verify_recaptcha(recaptcha_token, request.META.get('REMOTE_ADDR')):
-                return ResetPasswordWithCode(success=False, message='reCAPTCHA inválido')
+        # reCAPTCHA no requerido para Reset Password
 
         if new_password != confirm_password:
             return ResetPasswordWithCode(success=False, message='Las contraseñas no coinciden')
@@ -760,10 +802,9 @@ class DeleteUser(graphene.Mutation):
         if user.role != 'ADMINISTRADOR':
             return DeleteUser(success=False, message='Solo ADMINISTRADOR puede eliminar usuarios')
         try:
-            try:
-                _, real_id = from_global_id(id)
-            except Exception:
-                real_id = id
+            real_id = _resolve_real_id(id)
+            if not real_id:
+                return DeleteUser(success=False, message='ID inválido')
             target = User.objects.get(id=real_id)
             target.delete()
             return DeleteUser(success=True, message='Usuario eliminado correctamente')
@@ -1119,6 +1160,7 @@ class Mutation(graphene.ObjectType):
     # Usuarios
     create_user = CreateUser.Field()
     update_user = UpdateUser.Field()
+    delete_user = DeleteUser.Field()
     update_my_profile = UpdateMyProfile.Field()
     upload_my_photo_base64 = UploadMyPhotoBase64.Field()
     upload_my_photo_url = UploadMyPhotoUrl.Field()

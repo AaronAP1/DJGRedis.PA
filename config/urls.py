@@ -38,9 +38,9 @@ urlpatterns = [
     path('api/v1/companies/', include('src.adapters.primary.rest_api.companies.urls')),
     path('api/v1/reports/', include('src.adapters.primary.rest_api.reports.urls')),
     # OpenAPI & Swagger
-    path('api/schema/', never_cache(SpectacularAPIView.as_view(permission_classes=[AllowAny])), name='schema'),
-    path('api/docs/', never_cache(SpectacularSwaggerView.as_view(url_name='schema', permission_classes=[AllowAny])), name='swagger-ui'),
-    path('api/redoc/', never_cache(SpectacularRedocView.as_view(url_name='schema', permission_classes=[AllowAny])), name='redoc'),
+    path('api/schema/', never_cache(SpectacularAPIView.as_view(permission_classes=[AllowAny], authentication_classes=[])), name='schema'),
+    path('api/docs/', never_cache(SpectacularSwaggerView.as_view(url_name='schema', permission_classes=[AllowAny], authentication_classes=[])), name='swagger-ui'),
+    path('api/redoc/', never_cache(SpectacularRedocView.as_view(url_name='schema', permission_classes=[AllowAny], authentication_classes=[])), name='redoc'),
     # API GraphQL (principal)
     path('api/', include('src.adapters.primary.graphql_api.urls')),
 ]

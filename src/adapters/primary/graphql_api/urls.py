@@ -30,6 +30,9 @@ class CustomGraphQLView(GraphQLView):
             secure = jwt_settings.get('JWT_COOKIE_SECURE', not settings.DEBUG)
             samesite = jwt_settings.get('JWT_COOKIE_SAMESITE', 'Strict')
             path = jwt_settings.get('JWT_COOKIE_PATH', '/api/graphql/')
+            # DRF cookie names (SimpleJWT)
+            drf_cookie_name = getattr(settings, 'DRF_JWT_COOKIE_NAME', 'DRF_JWT')
+            drf_refresh_cookie_name = getattr(settings, 'DRF_JWT_REFRESH_COOKIE_NAME', 'DRF_JWT_REFRESH')
 
             # Helper to set cookie
             def _set_cookie(name, value, max_age=None):
@@ -51,8 +54,12 @@ class CustomGraphQLView(GraphQLView):
             # 1) Preferir tokens que la mutation dejó en el request (no requiere seleccionar campos)
             req_tokens = getattr(request, '_jwt_tokens', None)
             if isinstance(req_tokens, dict):
-                _set_cookie(cookie_name, req_tokens.get('access'), max_age=access_ttl)
-                _set_cookie(refresh_cookie_name, req_tokens.get('refresh'), max_age=refresh_ttl)
+                # GraphQL cookies (graphql_jwt tokens)
+                _set_cookie(cookie_name, req_tokens.get('graphql_access') or req_tokens.get('access'), max_age=access_ttl)
+                _set_cookie(refresh_cookie_name, req_tokens.get('graphql_refresh') or req_tokens.get('refresh'), max_age=refresh_ttl)
+                # DRF cookies (SimpleJWT tokens) para REST
+                _set_cookie(drf_cookie_name, req_tokens.get('drf_access') or req_tokens.get('graphql_access') or req_tokens.get('access'), max_age=access_ttl)
+                _set_cookie(drf_refresh_cookie_name, req_tokens.get('drf_refresh') or req_tokens.get('graphql_refresh') or req_tokens.get('refresh'), max_age=refresh_ttl)
 
             # 2) Fallback: parsear el body si el cliente solicitó los campos de token
             if request.method == 'POST' and request.body:
@@ -94,6 +101,9 @@ class CustomGraphQLView(GraphQLView):
                 if getattr(request, '_clear_jwt_cookies', False) or op_name == 'Logout' or 'logout' in query:
                     response.delete_cookie(cookie_name, path=path, samesite=samesite)
                     response.delete_cookie(refresh_cookie_name, path=path, samesite=samesite)
+                    # Borrar también cookies DRF
+                    response.delete_cookie(drf_cookie_name, path=path, samesite=samesite)
+                    response.delete_cookie(drf_refresh_cookie_name, path=path, samesite=samesite)
             # Si es una carga de GraphiQL (GET html) y viene prefill=1, solo prellenar editor.
             if request.method == 'GET' and hasattr(response, 'content') and 'text/html' in response.get('Content-Type', ''):
                 prefill = str(request.GET.get('prefill', '')).lower() in ('1','true','yes','y')

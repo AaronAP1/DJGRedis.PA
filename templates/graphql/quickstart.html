@@ -33,7 +33,7 @@
     <div class="card">
       <div class="row">
         <label>Base URL</label>
-        <input id="baseUrl" value="http://127.0.0.1:8000" />
+        <input id="baseUrl" value="" placeholder="http://localhost:8000" />
       </div>
 
       <div class="row"><small class="note">Debe apuntar al host donde corre Django. La consola GraphiQL está en <code>/api/graphql/</code>.</small></div>
@@ -145,10 +145,6 @@
         <div class="row">
           <label>Confirmar nueva</label>
           <input id="rpConf" value="NuevoPass!123" />
-        </div>
-        <div class="row">
-          <label>reCAPTCHA token</label>
-          <input id="rpRecaptcha" placeholder="token v2" />
         </div>
         <div class="row">
           <button id="btnReset">Abrir en GraphiQL</button>
@@ -293,7 +289,7 @@
         <h3>Importar / Exportar usuarios (REST)</h3>
         <p class="hint">Estas operaciones son solo <b>ADMIN</b> y se prueban en Swagger o Postman.</p>
         <div class="row">
-          <a class="btn" href="http://localhost:8000/api/docs/" target="_blank">Abrir Swagger</a>
+          <button id="btnSwagger" class="secondary">Abrir Swagger</button>
           <small class="note">Si entras desde este navegador, REST aceptará la cookie JWT sin Authorization.</small>
         </div>
         <div class="row">
@@ -327,7 +323,7 @@
 
     const qLogin = `mutation Login($username:String!, $password:String!, $recaptchaToken:String!) {\n  tokenAuth(username:$username, password:$password, recaptchaToken:$recaptchaToken) {\n    success\n    message\n    user { id email role username nombreCompleto nombres apellidos photoUrl isActive lastLogin }\n  }\n}`;
 
-    const qMe = `query {\n  me { id email role username nombreCompleto nombres apellidos photoUrl lastLogin }\n}`;
+    const qMe = `query {\n  me { id email role username nombreCompleto nombres apellidos codigoEstudiante photoUrl lastLogin }\n}`;
 
     const qUpd = `mutation UpdateMyProfile($input: ProfileInput!) {\n  updateMyProfile(input:$input) { success message user { id username nombres apellidos nombreCompleto photoUrl } }\n}`;
 
@@ -336,17 +332,24 @@
     const qStable = `mutation { stableRefresh { token refreshToken message } }`;
 
     const qLogout = `mutation { logout { success message } }`;
-    const qUsers = `query {\n  users {\n    edges {\n      node { id email username role isActive createdAt nombreCompleto }\n    }\n  }\n}`;
+    const qUsers = `query {\n  users {\n    edges {\n      node { id email username role isActive createdAt nombreCompleto nombres apellidos codigoEstudiante photoUrl }\n    }\n  }\n}`;
 
     // Nuevas operaciones
     const qForgot = `mutation Forgot($email:String!, $recaptchaToken:String!){\n  forgotPassword(email:$email, recaptchaToken:$recaptchaToken){ success message code }\n}`;
-    const qReset = `mutation Reset($email:String!, $code:String!, $pwd:String!, $conf:String!, $recaptchaToken:String!){\n  resetPasswordWithCode(email:$email, code:$code, newPassword:$pwd, confirmPassword:$conf, recaptchaToken:$recaptchaToken){ success message }\n}`;
+    const qReset = `mutation Reset($email:String!, $code:String!, $pwd:String!, $conf:String!){\n  resetPasswordWithCode(email:$email, code:$code, newPassword:$pwd, confirmPassword:$conf){ success message }\n}`;
     const qChange = `mutation ChangePwd($current:String!, $new:String!, $confirm:String!){\n  changePassword(currentPassword:$current, newPassword:$new, confirmPassword:$confirm){ success message }\n}`;
     const qCreate = `mutation CreateUser($input: UserInput!){\n  createUser(input:$input){ success message user { id email role username nombres apellidos } }\n}`;
-    const qUpdateUser = `mutation UpdateUser($id:ID!, $input: UserInput!){\n  updateUser(id:$id, input:$input){ success message user { id email username role isActive } }\n}`;
+    const qUpdateUser = `mutation UpdateUser($id:ID!, $input: UserUpdateInput!){\n  updateUser(id:$id, input:$input){ success message user { id email username role isActive } }\n}`;
     const qDeleteUser = `mutation DeleteUser($id:ID!){\n  deleteUser(id:$id){ success message }\n}`;
 
     const $ = (id) => document.getElementById(id);
+    // Prefill Base URL with current origin if empty to avoid cookie host mismatch (localhost vs 127.0.0.1)
+    try {
+      const _b = $('baseUrl');
+      if (_b && (!_b.value || _b.value.trim() === '')) {
+        _b.value = window.location.origin;
+      }
+    } catch (e) {}
 
     $('btnLogin').onclick = () => {
       const base = $('baseUrl').value;
@@ -399,8 +402,7 @@
     // Reset Password
     $('btnReset').onclick = () => {
       const base = $('baseUrl').value;
-      const variables = { email: $('rpEmail').value, code: $('rpCode').value, pwd: $('rpPwd').value, conf: $('rpConf').value, recaptchaToken: $('rpRecaptcha').value };
-      if (!variables.recaptchaToken) { alert('Ingresa el token de reCAPTCHA (v2)'); return; }
+      const variables = { email: $('rpEmail').value, code: $('rpCode').value, pwd: $('rpPwd').value, conf: $('rpConf').value };
       openNamed('GraphiQL-Reset', qsUrl(base, qReset, variables, 'Reset'));
     };
 
@@ -424,10 +426,43 @@
       openNamed('GraphiQL-CreateUser', qsUrl(base, qCreate, variables, 'CreateUser'));
     };
 
+    // Update User (ADMIN)
+    $('btnUpdateUser').onclick = () => {
+      const base = $('baseUrl').value;
+      const id = $('uuId').value.trim();
+      if (!id) { alert('Ingresa userId'); return; }
+      const input = {};
+      const v = (x) => (x || '').trim();
+      const e = v($('uuEmail').value); if (e) input.email = e;
+      const u = v($('uuUsername').value); if (u) input.username = u;
+      const f = v($('uuFirst').value); if (f) input.firstName = f;
+      const l = v($('uuLast').value); if (l) input.lastName = l;
+      const r = $('uuRole').value; if (r) input.role = r;
+      const a = $('uuActive').value; if (a !== '') input.isActive = (a === 'true');
+      const p = v($('uuPwd').value); if (p) input.password = p;
+      const variables = { id, input };
+      openNamed('GraphiQL-UpdateUser', qsUrl(base, qUpdateUser, variables, 'UpdateUser'));
+    };
+
+    // Delete User (ADMIN)
+    $('btnDeleteUser').onclick = () => {
+      const base = $('baseUrl').value;
+      const id = $('duId').value.trim();
+      if (!id) { alert('Ingresa userId'); return; }
+      const variables = { id };
+      openNamed('GraphiQL-DeleteUser', qsUrl(base, qDeleteUser, variables, 'DeleteUser'));
+    };
+
     // Listar usuarios
     $('btnUsers').onclick = () => {
       const base = $('baseUrl').value;
       openNamed('GraphiQL-Users', qsUrl(base, qUsers));
+    };
+
+    // Abrir Swagger con el mismo host del Base URL
+    $('btnSwagger').onclick = () => {
+      const base = $('baseUrl').value.replace(/\/$/, '');
+      openNew(base + '/api/docs/');
     };
   </script>
 </body>

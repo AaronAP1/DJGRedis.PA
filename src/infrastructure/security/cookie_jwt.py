@@ -19,7 +19,8 @@ class CookieJWTAuthentication(BaseAuthentication):
 
     def authenticate(self, request):
         jwt_settings = getattr(settings, 'GRAPHQL_JWT', {})
-        cookie_name = jwt_settings.get('JWT_COOKIE_NAME', 'JWT')
+        # Preferir cookie dedicada para DRF si está configurada
+        cookie_name = getattr(settings, 'DRF_JWT_COOKIE_NAME', None) or jwt_settings.get('DRF_JWT_COOKIE_NAME') or jwt_settings.get('JWT_COOKIE_NAME', 'JWT')
         token = request.COOKIES.get(cookie_name)
         if not token:
             # No cookie -> let other authenticators run

@@ -41,6 +41,8 @@ class UserType(DjangoObjectType):
     nombre_completo = graphene.String()
     nombres = graphene.String()
     apellidos = graphene.String()
+    # Exponer código de estudiante cuando el usuario es PRACTICANTE
+    codigo_estudiante = graphene.String()
     
     def resolve_full_name(self, info):
         """Resuelve el nombre completo."""
@@ -66,6 +68,17 @@ class UserType(DjangoObjectType):
 
     def resolve_apellidos(self, info):
         return self.last_name
+
+    def resolve_codigo_estudiante(self, info):
+        """Retorna el código de estudiante si el usuario es PRACTICANTE."""
+        try:
+            if getattr(self, 'role', None) == 'PRACTICANTE':
+                sp = getattr(self, 'student_profile', None)
+                if sp and getattr(sp, 'codigo_estudiante', None):
+                    return sp.codigo_estudiante
+        except Exception:
+            return None
+        return None
 
 
 class StudentFilter(FilterSet):
@@ -311,6 +324,17 @@ class UserInput(graphene.InputObjectType):
     is_active = graphene.Boolean()
     # Solo para rol PRACTICANTE (creación manual)
     codigo_estudiante = graphene.String()
+
+
+class UserUpdateInput(graphene.InputObjectType):
+    """Input para actualizar usuario (todos los campos opcionales)."""
+    email = graphene.String()
+    username = graphene.String()
+    first_name = graphene.String()
+    last_name = graphene.String()
+    role = graphene.String()
+    password = graphene.String()
+    is_active = graphene.Boolean()
 
 
 class ProfileInput(graphene.InputObjectType):
