@@ -8,9 +8,18 @@ class SecurityMiddleware(MiddlewareMixin):
     """Add basic security headers (complements Django's default security middleware)."""
 
     def process_response(self, request, response):
-        # Add Content Security Policy (adjust in production to your frontend domains)
+        # Add Content Security Policy (relaxed for development)
         if not response.has_header("Content-Security-Policy"):
-            response["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';"
+            # Relaxed CSP for development to allow Swagger/ReDoc CDN resources
+            csp_policy = (
+                "default-src 'self'; "
+                "img-src 'self' data: https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "font-src 'self' https://fonts.gstatic.com; "
+                "connect-src 'self';"
+            )
+            response["Content-Security-Policy"] = csp_policy
 
         # Additional headers
         response.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")

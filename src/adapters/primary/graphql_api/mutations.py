@@ -26,10 +26,11 @@ from django.core.files.base import ContentFile
 import secrets
 import logging
 import base64
-import imghdr
 import time
 import requests
 from urllib.parse import urlparse
+from PIL import Image
+import io
 from rest_framework_simplejwt.tokens import RefreshToken as DRFRefreshToken
 
 from .types import (
@@ -548,8 +549,12 @@ class UploadMyPhotoBase64(graphene.Mutation):
             if len(file_bytes) > max_size:
                 return UploadMyPhotoBase64(success=False, message='La imagen excede el tamaño máximo permitido')
 
-            # Detectar tipo
-            kind = imghdr.what(None, h=file_bytes) or 'jpeg'
+            # Detectar tipo usando Pillow
+            try:
+                image = Image.open(io.BytesIO(file_bytes))
+                kind = image.format.lower() or 'jpeg'
+            except Exception:
+                kind = 'jpeg'
             ext = 'jpg' if kind in ('jpeg', 'jpg') else kind
             filename = f"user_{user.id}_{int(time.time())}.{ext}"
 
@@ -611,8 +616,12 @@ class UploadMyPhotoUrl(graphene.Mutation):
                     if len(data) > max_size:
                         return UploadMyPhotoUrl(success=False, message='La imagen excede el tamaño máximo permitido', photo_url=None)
 
-            # Detectar tipo
-            kind = imghdr.what(None, h=data) or 'jpeg'
+            # Detectar tipo usando Pillow
+            try:
+                image = Image.open(io.BytesIO(data))
+                kind = image.format.lower() or 'jpeg'
+            except Exception:
+                kind = 'jpeg'
             ext = 'jpg' if kind in ('jpeg', 'jpg') else kind
             # Derivar nombre desde URL
             parsed = urlparse(url)

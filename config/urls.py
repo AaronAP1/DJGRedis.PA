@@ -18,11 +18,27 @@ from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import RedirectView
 from django.views.decorators.cache import never_cache
+from django.http import JsonResponse
+from rest_framework.permissions import AllowAny
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
     SpectacularRedocView,
 )
+
+# Simple view for API v1 root
+def api_v1_root(request):
+    return JsonResponse({
+        'message': 'UPeU PPP API v1',
+        'version': '1.0',
+        'endpoints': {
+            'auth': '/api/v1/auth/',
+            'users': '/api/v1/users/',
+            'practices': '/api/v1/practices/',
+            'companies': '/api/v1/companies/',
+            'reports': '/api/v1/reports/'
+        }
+    })
 from rest_framework.permissions import AllowAny
 from django.conf import settings
 from django.conf.urls.static import static
@@ -31,6 +47,8 @@ urlpatterns = [
     # Redirect root to API docs (avoid 404 at '/')
     path('', RedirectView.as_view(url='/api/docs/', permanent=False)),
     path('admin/', admin.site.urls),
+    # API v1 base endpoint
+    path('api/v1/', api_v1_root, name='api-v1-root'),
     # API REST (legacy/fallback)
     path('api/v1/auth/', include('src.adapters.primary.rest_api.auth.urls')),
     path('api/v1/users/', include('src.adapters.primary.rest_api.users.urls')),

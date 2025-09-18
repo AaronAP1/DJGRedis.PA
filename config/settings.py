@@ -101,9 +101,9 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME', default='gestion_practicas'),
-        'USER': config('DB_USER', default='postgres'),
-        'PASSWORD': config('DB_PASSWORD', default='postgres'),
+    'NAME': config('DB_NAME', default='upeu_ppp_system'),
+        'USER': config('DB_USER', default='upeu_admin'),
+        'PASSWORD': config('DB_PASSWORD', default='upeu_contra_2024'),
         'HOST': config('DB_HOST', default='localhost'),
         'PORT': config('DB_PORT', default='5432'),
     }

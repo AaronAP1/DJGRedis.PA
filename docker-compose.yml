@@ -1,141 +1,161 @@
-version: '3.8'
+# =====================================================
+# DOCKER COMPOSE - SISTEMA PPP UPeU
+# Integración: PostgreSQL + MongoDB + Redis + Seguridad
+# =====================================================
 
 services:
-  # Base de datos PostgreSQL
-  db:
+  # =====================================================
+  # BASE DE DATOS PRINCIPAL - POSTGRESQL
+  # =====================================================
+  postgres:
     image: postgres:15-alpine
+    container_name: upeu_postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: gestion_practicas
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: upeu_ppp_system
+      POSTGRES_USER: upeu_admin
+      POSTGRES_PASSWORD: upeu_contra_2024
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     volumes:
-      - postgres_data:/var/lib/postgresql/data/
+      - postgres_data:/var/lib/postgresql/data
+      - ./docs/arquitectura/crear_bd_completa.sql:/docker-entrypoint-initdb.d/01_crear_bd.sql
+      - ./backups/postgres:/backups
     ports:
       - "5432:5432"
+    networks:
+      - upeu_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "pg_isready -U upeu_admin -d upeu_ppp_system"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # Redis para cache y Celery
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # MongoDB para logs y métricas
-  mongodb:
-    image: mongo:7
+  # =====================================================
+  # GUI PARA POSTGRESQL - PGADMIN
+  # Acceder: http://localhost:8080 (user: admin@upeu.edu / pass: upeu_secure)
+  # =====================================================
+  pgadmin:
+    image: dpage/pgadmin4:7.0
+    container_name: upeu_pgadmin
+    restart: unless-stopped
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: rootpassword
-      MONGO_INITDB_DATABASE: gestion_practicas_logs
+      PGADMIN_DEFAULT_EMAIL: admin@upeu.edu
+      PGADMIN_DEFAULT_PASSWORD: upeu_secure
     ports:
-      - "27017:27017"
+      - "8080:80"
+    networks:
+      - upeu_network
+
+
+  # =====================================================
+  # BASE DE DATOS DOCUMENTAL - MONGODB
+  # =====================================================
+  mongodb:
+    image: mongo:6.0
+    container_name: upeu_mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: upeu_admin
+      MONGO_INITDB_ROOT_PASSWORD: upeu_contra_2024
+      MONGO_INITDB_DATABASE: upeu_documents
     volumes:
       - mongodb_data:/data/db
-
-  # Elasticsearch para búsqueda
-  elasticsearch:
-    image: elasticsearch:8.8.0
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - ./backups/mongodb:/backups
     ports:
-      - "9200:9200"
-    volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
+      - "27017:27017"
+    networks:
+      - upeu_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # Aplicación Django
-  web:
-    build: .
-    command: python manage.py runserver 0.0.0.0:8000
-    volumes:
-      - .:/app
-      - media_volume:/app/media
-      - static_volume:/app/staticfiles
+  # =====================================================
+  # GUI PARA MONGODB - MONGO EXPRESS
+  # Acceder: http://localhost:8081 (user: admin / pass: upeu_secure)
+  # =====================================================
+  mongo-express:
+    image: mongo-express:1.0.0
+    container_name: upeu_mongo_express
+    restart: unless-stopped
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_ADMINUSERNAME: upeu_admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: upeu_contra_2024
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: upeu_secure
     ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      - DEBUG=True
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/gestion_practicas
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - MONGODB_URL=mongodb://root:rootpassword@mongodb:27017/gestion_practicas_logs?authSource=admin
-      - ELASTICSEARCH_HOST=elasticsearch:9200
+      - "8081:8081"
+    networks:
+      - upeu_network
 
-  # Celery Worker
-  celery:
-    build: .
-    command: celery -A config worker -l info
+  # =====================================================
+  # CACHE Y SESIONES - REDIS
+  # =====================================================
+  redis:
+    image: redis:7-alpine
+    container_name: upeu_redis
+    restart: unless-stopped
+    command: redis-server --requirepass upeu_contra_2024 --appendonly yes
     volumes:
-      - .:/app
-    depends_on:
-      - db
-      - redis
-    environment:
-      - DEBUG=True
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/gestion_practicas
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
-
-  # Celery Beat (scheduler)
-  celery-beat:
-    build: .
-    command: celery -A config beat -l info
-    volumes:
-      - .:/app
-    depends_on:
-      - db
-      - redis
-    environment:
-      - DEBUG=True
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/gestion_practicas
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
-
-  # Flower (monitoreo de Celery)
-  flower:
-    build: .
-    command: celery -A config flower
+      - redis_data:/data
     ports:
-      - "5555:5555"
-    depends_on:
-      - redis
+      - "6379:6379"
+    networks:
+      - upeu_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =====================================================
+  # GUI PARA REDIS - REDISINSIGHT
+  # Acceder: http://localhost:8001
+  # =====================================================
+  redisinsight:
+    # Usar la imagen oficial y configurar /data y puerto según la documentación
+    image: redis/redisinsight:latest
+    container_name: upeu_redisinsight
+    restart: unless-stopped
     environment:
-      - CELERY_BROKER_URL=redis://redis:6379/1
-
-  # Nginx (producción)
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
+      - RI_LOG_LEVEL=debug
+      - RI_APP_PORT=5540
+      - RI_APP_HOST=0.0.0.0
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
-      - static_volume:/var/www/static
-      - media_volume:/var/www/media
-    depends_on:
-      - web
+      - redisinsight_data:/data
+    # Mapear host:container -> aquí mantenemos host 8001 para compatibilidad
+    # redirigiendo al puerto interno 5540 que RedisInsight escucha por defecto.
+    ports:
+      - "8001:5540"
+    networks:
+      - upeu_network
 
+
+# =====================================================
+# VOLÚMENES PERSISTENTES
+# =====================================================
 volumes:
   postgres_data:
-  redis_data:
+    driver: local
   mongodb_data:
-  elasticsearch_data:
-  media_volume:
-  static_volume:
+    driver: local
+  redis_data:
+    driver: local
+  redisinsight_data:
+    driver: local
+  static_files:
+    driver: local
+  media_files:
+    driver: local
+
+# =====================================================
+# RED INTERNA
+# =====================================================
+networks:
+  upeu_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
