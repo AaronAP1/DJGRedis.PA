@@ -1,0 +1,29 @@
+@startuml SystemContext
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+title Sistema de Gestión de Prácticas - Contexto del Sistema
+
+Person(estudiante, "Estudiante", "Estudiante universitario que realiza prácticas profesionales")
+Person(supervisor, "Supervisor de Empresa", "Supervisor designado por la empresa para guiar al practicante")
+Person(coordinador, "Coordinador Académico", "Coordinador académico que supervisa las prácticas desde la universidad")
+Person(secretaria, "Secretaria Académica", "Personal administrativo que gestiona documentación y procesos")
+Person(administrador, "Administrador del Sistema", "Administrador técnico del sistema")
+
+System(sistema_practicas, "Sistema de Gestión de Prácticas", "Sistema web para la gestión integral de prácticas profesionales universitarias con arquitectura hexagonal")
+
+System_Ext(sistema_academico, "Sistema Académico UPEU", "Sistema académico universitario con datos de estudiantes y notas")
+System_Ext(sunat_api, "API SUNAT", "Servicios web de SUNAT para validación de RUC y datos empresariales")
+System_Ext(email_service, "Servicio de Email", "Servicio externo para envío de notificaciones por correo electrónico")
+
+Rel(estudiante, sistema_practicas, "Registra prácticas, sube documentos, consulta estado")
+Rel(supervisor, sistema_practicas, "Supervisa practicantes, evalúa desempeño")
+Rel(coordinador, sistema_practicas, "Aprueba prácticas, supervisa proceso académico")
+Rel(secretaria, sistema_practicas, "Gestiona documentación, valida requisitos")
+Rel(administrador, sistema_practicas, "Administra usuarios, configura sistema")
+
+Rel(sistema_practicas, sistema_academico, "Consulta datos académicos de estudiantes")
+Rel(sistema_practicas, sunat_api, "Valida datos empresariales y RUC")
+Rel(sistema_practicas, email_service, "Envía notificaciones por email")
+
+SHOW_LEGEND()
+@enduml

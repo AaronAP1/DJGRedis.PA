@@ -36,7 +36,14 @@ def api_v1_root(request):
             'users': '/api/v1/users/',
             'practices': '/api/v1/practices/',
             'companies': '/api/v1/companies/',
-            'reports': '/api/v1/reports/'
+            'reports': '/api/v1/reports/',
+            'c4_models': '/api/v1/c4/'
+        },
+        'c4_documentation': {
+            'models': '/api/v1/c4/models/',
+            'diagrams': '/api/v1/c4/diagrams/{type}/',
+            'metadata': '/api/v1/c4/metadata/',
+            'available_types': ['context', 'containers', 'components', 'code']
         }
     })
 from rest_framework.permissions import AllowAny
@@ -55,6 +62,8 @@ urlpatterns = [
     path('api/v1/practices/', include('src.adapters.primary.rest_api.practices.urls')),
     path('api/v1/companies/', include('src.adapters.primary.rest_api.companies.urls')),
     path('api/v1/reports/', include('src.adapters.primary.rest_api.reports.urls')),
+    # API C4 Models
+    path('api/v1/c4/', include('src.adapters.primary.rest_api.urls.c4_urls')),
     # OpenAPI & Swagger
     path('api/schema/', never_cache(SpectacularAPIView.as_view(permission_classes=[AllowAny], authentication_classes=[])), name='schema'),
     path('api/docs/', never_cache(SpectacularSwaggerView.as_view(url_name='schema', permission_classes=[AllowAny], authentication_classes=[])), name='swagger-ui'),

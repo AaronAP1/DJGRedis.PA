@@ -1,0 +1,81 @@
+@startuml
+!define RECTANGLE class
+
+title Estructura de Clases del Dominio
+
+class User {
+    +id: UUID
+    +email: str
+    +role: UserRole
+    +is_active: bool
+    +created_at: datetime
+    --
+    +authenticate()
+    +change_password()
+    +deactivate()
+}
+
+class Student {
+    +student_code: str
+    +semester: int
+    +gpa: float
+    +career: str
+    --
+    +is_eligible_for_practice()
+    +calculate_hours_completed()
+}
+
+class Company {
+    +ruc: str
+    +business_name: str
+    +legal_representative: str
+    +status: CompanyStatus
+    --
+    +validate_ruc()
+    +activate()
+    +deactivate()
+}
+
+class Practice {
+    +id: UUID
+    +student: Student
+    +company: Company
+    +supervisor: Supervisor
+    +status: PracticeStatus
+    +start_date: date
+    +end_date: date
+    +total_hours: int
+    --
+    +approve()
+    +start()
+    +complete()
+    +calculate_progress()
+}
+
+class Supervisor {
+    +professional_license: str
+    +years_experience: int
+    +specialization: str
+    --
+    +assign_to_practice()
+    +evaluate_student()
+}
+
+class Coordinator {
+    +department: str
+    +academic_level: str
+    --
+    +approve_practice()
+    +assign_supervisor()
+    +generate_reports()
+}
+
+User <|-- Student
+User <|-- Supervisor  
+User <|-- Coordinator
+Student ||--o{ Practice
+Company ||--o{ Practice
+Supervisor ||--o{ Practice
+Practice }o--|| Coordinator
+
+@enduml

@@ -1,0 +1,869 @@
+{
+  "name": "Sistema de Gestión de Prácticas Profesionales",
+  "description": "Sistema para gestión integral de prácticas profesionales universitarias",
+  "version": "1.0.0",
+  "created": "2025-09-30T19:06:56.134096",
+  "model": {
+    "people": [
+      {
+        "id": "estudiante",
+        "name": "Estudiante",
+        "description": "Estudiante universitario que realiza prácticas profesionales",
+        "location": "External",
+        "type": "Person",
+        "tags": "Person"
+      },
+      {
+        "id": "supervisor",
+        "name": "Supervisor de Empresa",
+        "description": "Supervisor designado por la empresa para guiar al practicante",
+        "location": "External",
+        "type": "Person",
+        "tags": "Person"
+      },
+      {
+        "id": "coordinador",
+        "name": "Coordinador Académico",
+        "description": "Coordinador académico que supervisa las prácticas desde la universidad",
+        "location": "External",
+        "type": "Person",
+        "tags": "Person"
+      },
+      {
+        "id": "secretaria",
+        "name": "Secretaria Académica",
+        "description": "Personal administrativo que gestiona documentación y procesos",
+        "location": "External",
+        "type": "Person",
+        "tags": "Person"
+      },
+      {
+        "id": "administrador",
+        "name": "Administrador del Sistema",
+        "description": "Administrador técnico del sistema",
+        "location": "External",
+        "type": "Person",
+        "tags": "Person"
+      }
+    ],
+    "softwareSystems": [
+      {
+        "id": "sistema_practicas",
+        "name": "Sistema de Gestión de Prácticas",
+        "description": "Sistema web para la gestión integral de prácticas profesionales universitarias con arquitectura hexagonal",
+        "location": "Internal",
+        "type": "SoftwareSystem",
+        "tags": "Software System"
+      },
+      {
+        "id": "sistema_academico",
+        "name": "Sistema Académico UPEU",
+        "description": "Sistema académico universitario con datos de estudiantes y notas",
+        "location": "External",
+        "type": "SoftwareSystem",
+        "tags": "Software System"
+      },
+      {
+        "id": "sunat_api",
+        "name": "API SUNAT",
+        "description": "Servicios web de SUNAT para validación de RUC y datos empresariales",
+        "location": "External",
+        "type": "SoftwareSystem",
+        "tags": "Software System"
+      },
+      {
+        "id": "email_service",
+        "name": "Servicio de Email",
+        "description": "Servicio externo para envío de notificaciones por correo electrónico",
+        "location": "External",
+        "type": "SoftwareSystem",
+        "tags": "Software System"
+      }
+    ],
+    "containers": [
+      {
+        "id": "web_app",
+        "name": "Aplicación Web Django",
+        "description": "Aplicación web Django con arquitectura hexagonal que expone REST API y GraphQL API",
+        "technology": "Python, Django 5.0, DRF, Graphene",
+        "systemId": "sistema_practicas",
+        "type": "Container",
+        "tags": "Container"
+      },
+      {
+        "id": "postgres_db",
+        "name": "Base de Datos PostgreSQL",
+        "description": "Almacena datos principales: usuarios, estudiantes, empresas, prácticas",
+        "technology": "PostgreSQL 15",
+        "systemId": "sistema_practicas",
+        "type": "Container",
+        "tags": "Container"
+      },
+      {
+        "id": "redis_cache",
+        "name": "Cache Redis",
+        "description": "Cache para sesiones, tokens JWT y datos frecuentemente consultados",
+        "technology": "Redis 7",
+        "systemId": "sistema_practicas",
+        "type": "Container",
+        "tags": "Container"
+      },
+      {
+        "id": "mongodb",
+        "name": "Base de Datos MongoDB",
+        "description": "Almacena documentos, archivos y metadata de prácticas",
+        "technology": "MongoDB 6",
+        "systemId": "sistema_practicas",
+        "type": "Container",
+        "tags": "Container"
+      },
+      {
+        "id": "celery_worker",
+        "name": "Worker Celery",
+        "description": "Procesa tareas asíncronas: envío de emails, validaciones externas",
+        "technology": "Celery, Redis Broker",
+        "systemId": "sistema_practicas",
+        "type": "Container",
+        "tags": "Container"
+      }
+    ],
+    "components": [
+      {
+        "id": "domain_entities",
+        "name": "Entidades del Dominio",
+        "description": "User, Student, Company, Supervisor, Practice - Lógica de negocio pura",
+        "technology": "Python Classes",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,Domain"
+      },
+      {
+        "id": "domain_value_objects",
+        "name": "Value Objects",
+        "description": "Email, RUC, CodigoEstudiante, Telefono - Objetos inmutables",
+        "technology": "Python Dataclasses",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,Domain"
+      },
+      {
+        "id": "domain_enums",
+        "name": "Enumeraciones",
+        "description": "UserRole, PracticeStatus, CompanyStatus - Estados del sistema",
+        "technology": "Python Enums",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,Domain"
+      },
+      {
+        "id": "primary_ports",
+        "name": "Puertos Primarios",
+        "description": "Interfaces para casos de uso - Driving adapters",
+        "technology": "Python ABC",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,Port"
+      },
+      {
+        "id": "secondary_ports",
+        "name": "Puertos Secundarios",
+        "description": "Interfaces para repositorios y servicios - Driven adapters",
+        "technology": "Python ABC",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,Port"
+      },
+      {
+        "id": "use_cases",
+        "name": "Casos de Uso",
+        "description": "AuthenticationUseCase, UserManagementUseCase, PracticeManagementUseCase",
+        "technology": "Python Classes",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,UseCase"
+      },
+      {
+        "id": "dto_layer",
+        "name": "DTOs",
+        "description": "Data Transfer Objects para comunicación entre capas",
+        "technology": "Python Dataclasses",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,UseCase"
+      },
+      {
+        "id": "rest_api",
+        "name": "REST API",
+        "description": "Endpoints REST para operaciones CRUD y autenticación",
+        "technology": "Django REST Framework",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,PrimaryAdapter"
+      },
+      {
+        "id": "graphql_api",
+        "name": "GraphQL API",
+        "description": "Endpoint GraphQL para consultas flexibles",
+        "technology": "Graphene Django",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,PrimaryAdapter"
+      },
+      {
+        "id": "user_repository",
+        "name": "User Repository",
+        "description": "Implementación de persistencia para usuarios",
+        "technology": "Django ORM",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,SecondaryAdapter"
+      },
+      {
+        "id": "practice_repository",
+        "name": "Practice Repository",
+        "description": "Implementación de persistencia para prácticas",
+        "technology": "Django ORM",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,SecondaryAdapter"
+      },
+      {
+        "id": "security_service",
+        "name": "Security Service",
+        "description": "Autenticación JWT, encriptación, rate limiting",
+        "technology": "JWT, bcrypt",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,SecondaryAdapter"
+      },
+      {
+        "id": "cache_service",
+        "name": "Cache Service",
+        "description": "Servicio de cache para optimización",
+        "technology": "Redis Client",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,SecondaryAdapter"
+      },
+      {
+        "id": "logging_service",
+        "name": "Logging Service",
+        "description": "Servicio de logging y auditoría de seguridad",
+        "technology": "Python logging",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,SecondaryAdapter"
+      },
+      {
+        "id": "auth_middleware",
+        "name": "Authentication Middleware",
+        "description": "Middleware para autenticación JWT y autorización",
+        "technology": "Django Middleware",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,Middleware"
+      },
+      {
+        "id": "rate_limit_middleware",
+        "name": "Rate Limiting Middleware",
+        "description": "Middleware para limitación de tasa de requests",
+        "technology": "Django Middleware",
+        "containerId": "web_app",
+        "type": "Component",
+        "tags": "Component,Middleware"
+      }
+    ],
+    "codeElements": [
+      {
+        "id": "user_class",
+        "name": "User",
+        "type": "Entity",
+        "componentId": "domain_entities",
+        "tags": "Code Element"
+      },
+      {
+        "id": "student_class",
+        "name": "Student",
+        "type": "Entity",
+        "componentId": "domain_entities",
+        "tags": "Code Element"
+      },
+      {
+        "id": "company_class",
+        "name": "Company",
+        "type": "Entity",
+        "componentId": "domain_entities",
+        "tags": "Code Element"
+      },
+      {
+        "id": "supervisor_class",
+        "name": "Supervisor",
+        "type": "Entity",
+        "componentId": "domain_entities",
+        "tags": "Code Element"
+      },
+      {
+        "id": "practice_class",
+        "name": "Practice",
+        "type": "Entity",
+        "componentId": "domain_entities",
+        "tags": "Code Element"
+      },
+      {
+        "id": "entity_base_class",
+        "name": "Entity",
+        "type": "ABC",
+        "componentId": "domain_entities",
+        "tags": "Code Element"
+      },
+      {
+        "id": "email_vo",
+        "name": "Email",
+        "type": "ValueObject",
+        "componentId": "domain_value_objects",
+        "tags": "Code Element"
+      },
+      {
+        "id": "ruc_vo",
+        "name": "RUC",
+        "type": "ValueObject",
+        "componentId": "domain_value_objects",
+        "tags": "Code Element"
+      },
+      {
+        "id": "codigo_estudiante_vo",
+        "name": "CodigoEstudiante",
+        "type": "ValueObject",
+        "componentId": "domain_value_objects",
+        "tags": "Code Element"
+      },
+      {
+        "id": "telefono_vo",
+        "name": "Telefono",
+        "type": "ValueObject",
+        "componentId": "domain_value_objects",
+        "tags": "Code Element"
+      },
+      {
+        "id": "direccion_vo",
+        "name": "Direccion",
+        "type": "ValueObject",
+        "componentId": "domain_value_objects",
+        "tags": "Code Element"
+      },
+      {
+        "id": "user_role_enum",
+        "name": "UserRole",
+        "type": "Enum",
+        "componentId": "domain_enums",
+        "tags": "Code Element"
+      },
+      {
+        "id": "practice_status_enum",
+        "name": "PracticeStatus",
+        "type": "Enum",
+        "componentId": "domain_enums",
+        "tags": "Code Element"
+      },
+      {
+        "id": "company_status_enum",
+        "name": "CompanyStatus",
+        "type": "Enum",
+        "componentId": "domain_enums",
+        "tags": "Code Element"
+      },
+      {
+        "id": "auth_use_case",
+        "name": "AuthenticationUseCase",
+        "type": "UseCase",
+        "componentId": "use_cases",
+        "tags": "Code Element"
+      },
+      {
+        "id": "user_mgmt_use_case",
+        "name": "UserManagementUseCase",
+        "type": "UseCase",
+        "componentId": "use_cases",
+        "tags": "Code Element"
+      },
+      {
+        "id": "practice_mgmt_use_case",
+        "name": "PracticeManagementUseCase",
+        "type": "UseCase",
+        "componentId": "use_cases",
+        "tags": "Code Element"
+      },
+      {
+        "id": "user_dto",
+        "name": "UserDTO",
+        "type": "DTO",
+        "componentId": "dto_layer",
+        "tags": "Code Element"
+      },
+      {
+        "id": "practice_dto",
+        "name": "PracticeDTO",
+        "type": "DTO",
+        "componentId": "dto_layer",
+        "tags": "Code Element"
+      },
+      {
+        "id": "auth_request_dto",
+        "name": "AuthenticationRequest",
+        "type": "DTO",
+        "componentId": "dto_layer",
+        "tags": "Code Element"
+      },
+      {
+        "id": "api_response_dto",
+        "name": "ApiResponse",
+        "type": "DTO",
+        "componentId": "dto_layer",
+        "tags": "Code Element"
+      }
+    ],
+    "relationships": [
+      {
+        "sourceId": "estudiante",
+        "destinationId": "sistema_practicas",
+        "description": "Registra prácticas, sube documentos, consulta estado",
+        "technology": "HTTPS"
+      },
+      {
+        "sourceId": "supervisor",
+        "destinationId": "sistema_practicas",
+        "description": "Supervisa practicantes, evalúa desempeño",
+        "technology": "HTTPS"
+      },
+      {
+        "sourceId": "coordinador",
+        "destinationId": "sistema_practicas",
+        "description": "Aprueba prácticas, supervisa proceso académico",
+        "technology": "HTTPS"
+      },
+      {
+        "sourceId": "secretaria",
+        "destinationId": "sistema_practicas",
+        "description": "Gestiona documentación, valida requisitos",
+        "technology": "HTTPS"
+      },
+      {
+        "sourceId": "administrador",
+        "destinationId": "sistema_practicas",
+        "description": "Administra usuarios, configura sistema",
+        "technology": "HTTPS"
+      },
+      {
+        "sourceId": "sistema_practicas",
+        "destinationId": "sistema_academico",
+        "description": "Consulta datos académicos de estudiantes",
+        "technology": "REST API"
+      },
+      {
+        "sourceId": "sistema_practicas",
+        "destinationId": "sunat_api",
+        "description": "Valida datos empresariales y RUC",
+        "technology": "REST API"
+      },
+      {
+        "sourceId": "sistema_practicas",
+        "destinationId": "email_service",
+        "description": "Envía notificaciones por email",
+        "technology": "SMTP"
+      },
+      {
+        "sourceId": "estudiante",
+        "destinationId": "web_app",
+        "description": "Accede vía navegador web",
+        "technology": "HTTPS"
+      },
+      {
+        "sourceId": "supervisor",
+        "destinationId": "web_app",
+        "description": "Accede vía navegador web",
+        "technology": "HTTPS"
+      },
+      {
+        "sourceId": "coordinador",
+        "destinationId": "web_app",
+        "description": "Accede vía navegador web",
+        "technology": "HTTPS"
+      },
+      {
+        "sourceId": "secretaria",
+        "destinationId": "web_app",
+        "description": "Accede vía navegador web",
+        "technology": "HTTPS"
+      },
+      {
+        "sourceId": "administrador",
+        "destinationId": "web_app",
+        "description": "Accede vía navegador web",
+        "technology": "HTTPS"
+      },
+      {
+        "sourceId": "web_app",
+        "destinationId": "postgres_db",
+        "description": "Lee y escribe datos",
+        "technology": "SQL/TCP"
+      },
+      {
+        "sourceId": "web_app",
+        "destinationId": "redis_cache",
+        "description": "Cache y sesiones",
+        "technology": "Redis Protocol"
+      },
+      {
+        "sourceId": "web_app",
+        "destinationId": "mongodb",
+        "description": "Gestiona documentos",
+        "technology": "MongoDB Protocol"
+      },
+      {
+        "sourceId": "web_app",
+        "destinationId": "celery_worker",
+        "description": "Encola tareas",
+        "technology": "Redis Queue"
+      },
+      {
+        "sourceId": "celery_worker",
+        "destinationId": "postgres_db",
+        "description": "Lee datos para procesamiento",
+        "technology": "SQL/TCP"
+      },
+      {
+        "sourceId": "celery_worker",
+        "destinationId": "mongodb",
+        "description": "Procesa documentos",
+        "technology": "MongoDB Protocol"
+      },
+      {
+        "sourceId": "web_app",
+        "destinationId": "sistema_academico",
+        "description": "Consulta datos académicos",
+        "technology": "REST API"
+      },
+      {
+        "sourceId": "celery_worker",
+        "destinationId": "sunat_api",
+        "description": "Valida RUC empresas",
+        "technology": "REST API"
+      },
+      {
+        "sourceId": "celery_worker",
+        "destinationId": "email_service",
+        "description": "Envía notificaciones",
+        "technology": "SMTP"
+      },
+      {
+        "sourceId": "domain_entities",
+        "destinationId": "domain_value_objects",
+        "description": "utiliza",
+        "technology": ""
+      },
+      {
+        "sourceId": "domain_entities",
+        "destinationId": "domain_enums",
+        "description": "utiliza",
+        "technology": ""
+      },
+      {
+        "sourceId": "use_cases",
+        "destinationId": "domain_entities",
+        "description": "opera sobre",
+        "technology": ""
+      },
+      {
+        "sourceId": "use_cases",
+        "destinationId": "secondary_ports",
+        "description": "depende de",
+        "technology": ""
+      },
+      {
+        "sourceId": "use_cases",
+        "destinationId": "dto_layer",
+        "description": "utiliza",
+        "technology": ""
+      },
+      {
+        "sourceId": "rest_api",
+        "destinationId": "primary_ports",
+        "description": "implementa",
+        "technology": ""
+      },
+      {
+        "sourceId": "rest_api",
+        "destinationId": "use_cases",
+        "description": "invoca",
+        "technology": ""
+      },
+      {
+        "sourceId": "rest_api",
+        "destinationId": "dto_layer",
+        "description": "utiliza",
+        "technology": ""
+      },
+      {
+        "sourceId": "graphql_api",
+        "destinationId": "primary_ports",
+        "description": "implementa",
+        "technology": ""
+      },
+      {
+        "sourceId": "graphql_api",
+        "destinationId": "use_cases",
+        "description": "invoca",
+        "technology": ""
+      },
+      {
+        "sourceId": "graphql_api",
+        "destinationId": "dto_layer",
+        "description": "utiliza",
+        "technology": ""
+      },
+      {
+        "sourceId": "user_repository",
+        "destinationId": "secondary_ports",
+        "description": "implementa",
+        "technology": ""
+      },
+      {
+        "sourceId": "user_repository",
+        "destinationId": "domain_entities",
+        "description": "persiste",
+        "technology": ""
+      },
+      {
+        "sourceId": "practice_repository",
+        "destinationId": "secondary_ports",
+        "description": "implementa",
+        "technology": ""
+      },
+      {
+        "sourceId": "practice_repository",
+        "destinationId": "domain_entities",
+        "description": "persiste",
+        "technology": ""
+      },
+      {
+        "sourceId": "security_service",
+        "destinationId": "secondary_ports",
+        "description": "implementa",
+        "technology": ""
+      },
+      {
+        "sourceId": "cache_service",
+        "destinationId": "secondary_ports",
+        "description": "implementa",
+        "technology": ""
+      },
+      {
+        "sourceId": "logging_service",
+        "destinationId": "secondary_ports",
+        "description": "implementa",
+        "technology": ""
+      },
+      {
+        "sourceId": "auth_middleware",
+        "destinationId": "security_service",
+        "description": "utiliza",
+        "technology": ""
+      },
+      {
+        "sourceId": "rate_limit_middleware",
+        "destinationId": "cache_service",
+        "description": "utiliza",
+        "technology": ""
+      },
+      {
+        "sourceId": "user_repository",
+        "destinationId": "postgres_db",
+        "description": "persiste en",
+        "technology": ""
+      },
+      {
+        "sourceId": "practice_repository",
+        "destinationId": "postgres_db",
+        "description": "persiste en",
+        "technology": ""
+      },
+      {
+        "sourceId": "cache_service",
+        "destinationId": "redis_cache",
+        "description": "conecta a",
+        "technology": ""
+      }
+    ]
+  },
+  "views": {
+    "systemContextViews": [
+      {
+        "key": "SystemContext",
+        "title": "Sistema de Gestión de Prácticas - Contexto",
+        "description": "Vista general del sistema y sus usuarios",
+        "softwareSystemId": "sistema_practicas",
+        "elements": [
+          {
+            "id": "estudiante",
+            "x": 200,
+            "y": 200
+          },
+          {
+            "id": "supervisor",
+            "x": 600,
+            "y": 200
+          },
+          {
+            "id": "coordinador",
+            "x": 1000,
+            "y": 200
+          },
+          {
+            "id": "secretaria",
+            "x": 200,
+            "y": 600
+          },
+          {
+            "id": "administrador",
+            "x": 1000,
+            "y": 600
+          },
+          {
+            "id": "sistema_practicas",
+            "x": 600,
+            "y": 400
+          },
+          {
+            "id": "sistema_academico",
+            "x": 200,
+            "y": 800
+          },
+          {
+            "id": "sunat_api",
+            "x": 600,
+            "y": 800
+          },
+          {
+            "id": "email_service",
+            "x": 1000,
+            "y": 800
+          }
+        ],
+        "relationships": "all"
+      }
+    ],
+    "containerViews": [
+      {
+        "key": "Containers",
+        "title": "Sistema de Gestión de Prácticas - Contenedores",
+        "description": "Aplicaciones, servicios y almacenes de datos",
+        "softwareSystemId": "sistema_practicas",
+        "elements": [
+          {
+            "id": "web_app",
+            "x": 600,
+            "y": 300
+          },
+          {
+            "id": "postgres_db",
+            "x": 200,
+            "y": 600
+          },
+          {
+            "id": "redis_cache",
+            "x": 600,
+            "y": 600
+          },
+          {
+            "id": "mongodb",
+            "x": 1000,
+            "y": 600
+          },
+          {
+            "id": "celery_worker",
+            "x": 600,
+            "y": 800
+          }
+        ],
+        "relationships": "all"
+      }
+    ],
+    "componentViews": [
+      {
+        "key": "Components",
+        "title": "Aplicación Web Django - Componentes",
+        "description": "Componentes internos siguiendo arquitectura hexagonal",
+        "containerId": "web_app",
+        "elements": [
+          {
+            "id": "rest_api",
+            "x": 200,
+            "y": 200
+          },
+          {
+            "id": "graphql_api",
+            "x": 400,
+            "y": 200
+          },
+          {
+            "id": "use_cases",
+            "x": 300,
+            "y": 400
+          },
+          {
+            "id": "domain_entities",
+            "x": 600,
+            "y": 600
+          },
+          {
+            "id": "user_repository",
+            "x": 200,
+            "y": 800
+          },
+          {
+            "id": "practice_repository",
+            "x": 400,
+            "y": 800
+          }
+        ],
+        "relationships": "all"
+      }
+    ],
+    "codeViews": [
+      {
+        "key": "DomainClasses",
+        "title": "Entidades del Dominio - Clases",
+        "description": "Clases principales del dominio de prácticas",
+        "componentId": "domain_entities",
+        "elements": [
+          {
+            "id": "entity_base_class",
+            "x": 400,
+            "y": 200
+          },
+          {
+            "id": "user_class",
+            "x": 200,
+            "y": 400
+          },
+          {
+            "id": "student_class",
+            "x": 400,
+            "y": 400
+          },
+          {
+            "id": "company_class",
+            "x": 600,
+            "y": 400
+          },
+          {
+            "id": "practice_class",
+            "x": 400,
+            "y": 600
+          }
+        ],
+        "relationships": "all"
+      }
+    ]
+  }
+}

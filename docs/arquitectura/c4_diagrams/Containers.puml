@@ -1,0 +1,34 @@
+@startuml Containers
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title Sistema de Gestión de Prácticas - Vista de Contenedores
+
+Person(user, "Usuario del Sistema", "Cualquier usuario del sistema")
+
+System_Boundary(c1, "Sistema de Gestión de Prácticas") {
+    Container(web_app, "Aplicación Web Django", "Python, Django 5.0, DRF, Graphene", "Aplicación web con arquitectura hexagonal que expone REST API y GraphQL API")
+    ContainerDb(postgres_db, "Base de Datos PostgreSQL", "PostgreSQL 15", "Almacena datos principales: usuarios, estudiantes, empresas, prácticas")
+    ContainerDb(redis_cache, "Cache Redis", "Redis 7", "Cache para sesiones, tokens JWT y datos frecuentemente consultados")
+    ContainerDb(mongodb, "Base de Datos MongoDB", "MongoDB 6", "Almacena documentos, archivos y metadata de prácticas")
+    Container(celery_worker, "Worker Celery", "Celery, Redis Broker", "Procesa tareas asíncronas: envío de emails, validaciones externas")
+}
+
+System_Ext(sistema_academico, "Sistema Académico UPEU", "Sistema académico universitario")
+System_Ext(sunat_api, "API SUNAT", "Servicios web de SUNAT")
+System_Ext(email_service, "Servicio de Email", "Servicio de notificaciones")
+
+Rel(user, web_app, "Usa", "HTTPS")
+Rel(web_app, postgres_db, "Lee y escribe datos", "SQL/TCP")
+Rel(web_app, redis_cache, "Cache y sesiones", "Redis Protocol")
+Rel(web_app, mongodb, "Gestiona documentos", "MongoDB Protocol")
+Rel(web_app, celery_worker, "Encola tareas", "Redis Queue")
+
+Rel(celery_worker, postgres_db, "Lee datos para procesamiento", "SQL/TCP")
+Rel(celery_worker, mongodb, "Procesa documentos", "MongoDB Protocol")
+
+Rel(web_app, sistema_academico, "Consulta datos académicos", "REST API")
+Rel(celery_worker, sunat_api, "Valida RUC empresas", "REST API")
+Rel(celery_worker, email_service, "Envía notificaciones", "SMTP")
+
+SHOW_LEGEND()
+@enduml

@@ -1,0 +1,68 @@
+@startuml Components
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title Aplicación Web Django - Vista de Componentes (Arquitectura Hexagonal)
+
+Container(web_app, "Aplicación Web Django", "Django")
+
+Container_Boundary(c1, "Aplicación Web Django") {
+    ' Adaptadores Primarios (Driving)
+    Component(rest_api, "REST API", "Django REST Framework", "Endpoints REST para operaciones CRUD y autenticación")
+    Component(graphql_api, "GraphQL API", "Graphene Django", "Endpoint GraphQL para consultas flexibles")
+    
+    ' Puertos Primarios
+    Component(primary_ports, "Puertos Primarios", "Python ABC", "Interfaces para casos de uso")
+    
+    ' Capa de Aplicación
+    Component(use_cases, "Casos de Uso", "Python Classes", "AuthenticationUseCase, UserManagementUseCase, PracticeManagementUseCase")
+    Component(dto_layer, "DTOs", "Python Dataclasses", "Data Transfer Objects para comunicación entre capas")
+    
+    ' Dominio (Core)
+    Component(domain_entities, "Entidades del Dominio", "Python Classes", "User, Student, Company, Supervisor, Practice")
+    Component(domain_vo, "Value Objects", "Python Dataclasses", "Email, RUC, CodigoEstudiante, Telefono")
+    Component(domain_enums, "Enumeraciones", "Python Enums", "UserRole, PracticeStatus, CompanyStatus")
+    
+    ' Puertos Secundarios
+    Component(secondary_ports, "Puertos Secundarios", "Python ABC", "Interfaces para repositorios y servicios")
+    
+    ' Adaptadores Secundarios (Driven)
+    Component(repositories, "Repositorios", "Django ORM", "User Repository, Practice Repository")
+    Component(security_service, "Security Service", "JWT, bcrypt", "Autenticación JWT, encriptación, rate limiting")
+    Component(cache_service, "Cache Service", "Redis Client", "Servicio de cache para optimización")
+    Component(logging_service, "Logging Service", "Python logging", "Servicio de logging y auditoría")
+    
+    ' Middleware
+    Component(auth_middleware, "Auth Middleware", "Django Middleware", "Autenticación JWT y autorización")
+    Component(rate_limit_middleware, "Rate Limit Middleware", "Django Middleware", "Limitación de tasa de requests")
+}
+
+ContainerDb(postgres, "PostgreSQL", "Base de datos principal")
+ContainerDb(redis, "Redis", "Cache")
+ContainerDb(mongodb, "MongoDB", "Documentos")
+
+' Relaciones Hexagonales
+Rel(rest_api, primary_ports, "implementa")
+Rel(graphql_api, primary_ports, "implementa")
+Rel(primary_ports, use_cases, "invoca")
+
+Rel(use_cases, domain_entities, "opera sobre")
+Rel(use_cases, secondary_ports, "depende de")
+Rel(use_cases, dto_layer, "utiliza")
+
+Rel(domain_entities, domain_vo, "utiliza")
+Rel(domain_entities, domain_enums, "utiliza")
+
+Rel(repositories, secondary_ports, "implementa")
+Rel(security_service, secondary_ports, "implementa")
+Rel(cache_service, secondary_ports, "implementa")
+Rel(logging_service, secondary_ports, "implementa")
+
+Rel(repositories, postgres, "persiste en")
+Rel(cache_service, redis, "conecta a")
+Rel(repositories, mongodb, "almacena documentos en")
+
+Rel(auth_middleware, security_service, "utiliza")
+Rel(rate_limit_middleware, cache_service, "utiliza")
+
+SHOW_LEGEND()
+@enduml
