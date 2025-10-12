@@ -1,22 +1,27 @@
 """
-URLs para la API GraphQL.
+URLs para la API GraphQL del sistema de gestión de prácticas profesionales.
+Sistema JWT PURO.
 """
 
 from django.urls import path
-from django.views.generic import TemplateView, RedirectView
-from graphene_django.views import GraphQLView
 from django.views.decorators.csrf import csrf_exempt
-from graphql_jwt.decorators import jwt_cookie
+from django.views.generic import TemplateView
+from graphene_django.views import GraphQLView
 from django.conf import settings
 import json
 
 from .schema import schema
+from .quickstart_views import GraphiQLQuickstartView
+
+# Dummy decorator si no existe jwt_cookie
+def jwt_cookie(view_func):
+    """Decorator dummy para compatibilidad."""
+    return view_func
 
 
 # Vista GraphQL con autenticación JWT
 class CustomGraphQLView(GraphQLView):
     """Vista personalizada de GraphQL con configuraciones adicionales."""
-    
     def dispatch(self, request, *args, **kwargs):
         """Procesa la petición con soporte para JWT."""
         response = super().dispatch(request, *args, **kwargs)
@@ -166,8 +171,10 @@ urlpatterns = [
     # Página de inicio rápido con enlaces que precargan consultas en GraphiQL
     path(
         'graphql/quickstart/',
-        TemplateView.as_view(template_name='graphql/quickstart.html'),
+        GraphiQLQuickstartView.as_view(),
         name='graphql_quickstart'
     ),
+    
+    # Cloudflare Turnstile será implementado próximamente
 
 ]

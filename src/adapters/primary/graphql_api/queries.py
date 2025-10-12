@@ -8,11 +8,13 @@ from graphql_jwt.decorators import login_required, permission_required
 from django.contrib.auth import get_user_model
 
 from .types import (
-    UserType, StudentType, CompanyType, SupervisorType,
-    PracticeType, DocumentType, NotificationType
+    UserType, StudentType, CompanyType, PracticeType, DocumentType, NotificationType,
+    PermissionType, RoleType, UserPermissionType, UserPermissionsInfo, AvatarType, EmpresaRucType,
+    SupervisorType
 )
 from src.adapters.secondary.database.models import (
-    Student, Company, Supervisor, Practice, Document, Notification
+    Student, Company, Supervisor, Practice, Document, Notification,
+    Permission, Role, UserPermission, Avatar
 )
 
 User = get_user_model()
@@ -59,6 +61,21 @@ class Query(graphene.ObjectType):
     
     # ===== ESTADÍSTICAS =====
     statistics = graphene.Field(graphene.JSONString)
+    
+    # ===== ROLES Y PERMISOS =====
+    permissions = graphene.List(PermissionType, module=graphene.String())
+    permission = graphene.Field(PermissionType, id=graphene.ID(required=True))
+    roles = graphene.List(RoleType, is_active=graphene.Boolean())
+    role = graphene.Field(RoleType, id=graphene.ID(required=True))
+    user_permissions_info = graphene.Field(UserPermissionsInfo, user_id=graphene.ID(required=True))
+    my_permissions_info = graphene.Field(UserPermissionsInfo)
+    
+    # ===== AVATARES =====
+    avatars_by_role = graphene.List(AvatarType)
+    list_avatars = graphene.List(AvatarType, role=graphene.String())
+    
+    # ===== BUSCAR EMPRESA POR RUC =====
+    buscar_empresa_ruc = graphene.Field(EmpresaRucType, ruc=graphene.String(required=True))
 
     # ===== RESOLVERS USUARIOS =====
     @login_required
@@ -68,7 +85,17 @@ class Query(graphene.ObjectType):
         # Solo ADMINISTRADOR puede ver listado y no debe verse a sí mismo
         if user.role == 'ADMINISTRADOR':
             return User.objects.exclude(id=user.id).order_by('created_at')
-        return User.objects.none()
+        
+        # Lanzar error claro para usuarios sin permisos
+        from graphql import GraphQLError
+        raise GraphQLError(
+            "No tienes permisos para ver la lista de usuarios",
+            extensions={
+                'code': 'INSUFFICIENT_PERMISSIONS',
+                'required_role': 'ADMINISTRADOR',
+                'current_role': user.role
+            }
+        )
 
     @login_required
     def resolve_user(self, info, id):
@@ -81,9 +108,19 @@ class Query(graphene.ObjectType):
                 return None
         return None
 
-    @login_required
     def resolve_me(self, info):
         """Resuelve el usuario actual."""
+        # Verificar si hay usuario autenticado
+        if not hasattr(info.context, 'user') or not info.context.user.is_authenticated:
+            from graphql import GraphQLError
+            raise GraphQLError(
+                "No ha iniciado sesión. Por favor, inicie sesión para acceder a su perfil.",
+                extensions={
+                    'code': 'UNAUTHENTICATED',
+                    'action': 'LOGIN_REQUIRED'
+                }
+            )
+        
         return info.context.user
 
     # ===== RESOLVERS ESTUDIANTES =====
@@ -349,3 +386,285 @@ class Query(graphene.ObjectType):
         }
         
         return stats
+    
+    # ===== RESOLVERS ROLES Y PERMISOS =====
+    @login_required
+    def resolve_permissions(self, info, module=None):
+        """Resuelve la lista de permisos."""
+        user = info.context.user
+        
+        # DEBUG: Imprimir información del usuario
+        print(f"🔍 DEBUG resolve_permissions:")
+        print(f"   - Usuario: {user.username}")
+        print(f"   - Email: {user.email}")
+        print(f"   - Rol: {user.role}")
+        print(f"   - Es activo: {user.is_active}")
+        
+        # Solo administradores pueden ver permisos
+        if user.role != 'ADMINISTRADOR':
+            print(f"❌ Usuario {user.username} con rol {user.role} intentó acceder a permisos")
+            from graphql import GraphQLError
+            raise GraphQLError(
+                "No tienes permisos para ver la lista de permisos",
+                extensions={
+                    'code': 'INSUFFICIENT_PERMISSIONS',
+                    'required_role': 'ADMINISTRADOR',
+                    'current_role': user.role
+                }
+            )
+        
+        print(f"✅ Usuario ADMINISTRADOR accediendo a permisos")
+        queryset = Permission.objects.filter(is_active=True)
+        if module:
+            queryset = queryset.filter(module=module)
+        
+        permissions_count = queryset.count()
+        print(f"📊 Total de permisos encontrados: {permissions_count}")
+        
+        return queryset.order_by('module', 'code')
+    
+    @login_required
+    def resolve_permission(self, info, id):
+        """Resuelve un permiso específico."""
+        user = info.context.user
+        
+        if user.role != 'ADMINISTRADOR':
+            from graphql import GraphQLError
+            raise GraphQLError(
+                "No tienes permisos para ver información de permisos",
+                extensions={
+                    'code': 'INSUFFICIENT_PERMISSIONS',
+                    'required_role': 'ADMINISTRADOR',
+                    'current_role': user.role
+                }
+            )
+        
+        try:
+            return Permission.objects.get(pk=id)
+        except Permission.DoesNotExist:
+            return None
+    
+    @login_required
+    def resolve_roles(self, info, is_active=None):
+        """Resuelve la lista de roles."""
+        user = info.context.user
+        
+        # DEBUG: Imprimir información del usuario
+        print(f"🔍 DEBUG resolve_roles:")
+        print(f"   - Usuario: {user.username}")
+        print(f"   - Rol: {user.role}")
+        
+        # Solo administradores pueden ver roles
+        if user.role == 'ADMINISTRADOR':
+            print(f"✅ Usuario ADMINISTRADOR accediendo a roles")
+            queryset = Role.objects.all()
+            if is_active is not None:
+                queryset = queryset.filter(is_active=is_active)
+            roles_count = queryset.count()
+            print(f"📊 Total de roles encontrados: {roles_count}")
+            return queryset.order_by('name')
+        
+        # Lanzar error claro para usuarios sin permisos
+        from graphql import GraphQLError
+        raise GraphQLError(
+            "No tienes permisos para ver la lista de roles",
+            extensions={
+                'code': 'INSUFFICIENT_PERMISSIONS',
+                'required_role': 'ADMINISTRADOR',
+                'current_role': user.role
+            }
+        )
+    
+    @login_required
+    def resolve_role(self, info, id):
+        """Resuelve un rol específico."""
+        user = info.context.user
+        
+        if not user.is_administrador and not user.is_superuser:
+            return None
+        
+        try:
+            return Role.objects.get(pk=id)
+        except Role.DoesNotExist:
+            return None
+    
+    @login_required
+    def resolve_user_permissions_info(self, info, user_id):
+        """Resuelve información de permisos de un usuario."""
+        admin_user = info.context.user
+        
+        # Solo administradores pueden ver permisos de otros usuarios
+        if not admin_user.is_administrador and not admin_user.is_superuser:
+            return None
+        
+        try:
+            target_user = User.objects.get(pk=user_id)
+            
+            role_perms = []
+            if target_user.role_obj:
+                role_perms = list(target_user.role_obj.permissions.filter(is_active=True))
+            
+            custom_perms = list(target_user.custom_permissions.filter(
+                permission__is_active=True
+            ))
+            
+            return UserPermissionsInfo(
+                role=target_user.role_obj,
+                role_permissions=role_perms,
+                custom_permissions=custom_perms,
+                all_permissions=target_user.get_all_permissions()
+            )
+        except User.DoesNotExist:
+            return None
+    
+    @login_required
+    def resolve_my_permissions_info(self, info):
+        """Resuelve información de permisos del usuario autenticado."""
+        user = info.context.user
+        
+        role_perms = []
+        if user.role_obj:
+            role_perms = list(user.role_obj.permissions.filter(is_active=True))
+        
+        custom_perms = list(user.custom_permissions.filter(
+            permission__is_active=True
+        ))
+        
+        return UserPermissionsInfo(
+            role=user.role_obj,
+            role_permissions=role_perms,
+            custom_permissions=custom_perms,
+            all_permissions=user.get_all_permissions()
+        )
+    
+    # ===== RESOLVERS AVATARES =====
+    @login_required
+    def resolve_avatars_by_role(self, info):
+        """Resuelve avatares según el rol del usuario autenticado desde la base de datos."""
+        user = info.context.user
+        user_role = user.role
+        
+        # Obtener avatares activos para el rol del usuario desde la BD
+        avatars = Avatar.objects.filter(
+            role=user_role,
+            is_active=True
+        ).order_by('created_at')
+        
+        return avatars
+    
+    @login_required
+    def resolve_list_avatars(self, info, role=None):
+        """Resuelve lista de avatares para administradores (con filtro opcional por rol)."""
+        user = info.context.user
+        
+        # Solo ADMINISTRADOR puede listar todos los avatares
+        if user.role != 'ADMINISTRADOR':
+            from graphql import GraphQLError
+            raise GraphQLError(
+                "No tienes permisos para listar avatares",
+                extensions={
+                    'code': 'INSUFFICIENT_PERMISSIONS',
+                    'required_role': 'ADMINISTRADOR',
+                    'current_role': user.role
+                }
+            )
+        
+        # Filtrar por rol si se especifica
+        queryset = Avatar.objects.all()
+        if role:
+            queryset = queryset.filter(role=role)
+        
+        return queryset.order_by('role', 'created_at')
+    
+    # ===== RESOLVERS BUSCAR EMPRESA =====
+    @login_required
+    def resolve_buscar_empresa_ruc(self, info, ruc):
+        """Busca información de empresa por RUC usando API externa."""
+        user = info.context.user
+        
+        # Solo ADMINISTRADOR y PRACTICANTE pueden buscar empresas
+        if user.role not in ['ADMINISTRADOR', 'PRACTICANTE']:
+            from graphql import GraphQLError
+            raise GraphQLError(
+                "No tienes permisos para buscar empresas",
+                extensions={
+                    'code': 'INSUFFICIENT_PERMISSIONS',
+                    'required_roles': ['ADMINISTRADOR', 'PRACTICANTE'],
+                    'current_role': user.role
+                }
+            )
+        
+        # Validar formato de RUC (11 dígitos)
+        if not ruc or len(ruc) != 11 or not ruc.isdigit():
+            from graphql import GraphQLError
+            raise GraphQLError(
+                "RUC debe tener exactamente 11 dígitos",
+                extensions={
+                    'code': 'INVALID_RUC_FORMAT',
+                    'ruc': ruc
+                }
+            )
+        
+        try:
+            import requests
+            
+            # API Token
+            api_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6InByYWN0aWNhc2dlc3Rpb241QGdtYWlsLmNvbSJ9.JeW3jVctA3mDkU9IZSl_ATzO0AwZiHo53YChh3_ZUyI"
+            
+            # Llamar a la API
+            url = f"https://dniruc.apisperu.com/api/v1/ruc/{ruc}?token={api_token}"
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Extraer solo los campos necesarios
+                return EmpresaRucType(
+                    ruc=data.get('ruc'),
+                    razon_social=data.get('razonSocial'),
+                    nombre_comercial=data.get('nombreComercial'),
+                    direccion=data.get('direccion'),
+                    departamento=data.get('departamento'),
+                    provincia=data.get('provincia'),
+                    distrito=data.get('distrito'),
+                    estado=data.get('estado'),
+                    condicion=data.get('condicion')
+                )
+            else:
+                from graphql import GraphQLError
+                raise GraphQLError(
+                    f"Error al consultar RUC: {response.status_code}",
+                    extensions={
+                        'code': 'API_ERROR',
+                        'status_code': response.status_code,
+                        'ruc': ruc
+                    }
+                )
+                
+        except requests.exceptions.Timeout:
+            from graphql import GraphQLError
+            raise GraphQLError(
+                "Timeout al consultar la API de RUC",
+                extensions={
+                    'code': 'API_TIMEOUT',
+                    'ruc': ruc
+                }
+            )
+        except requests.exceptions.RequestException as e:
+            from graphql import GraphQLError
+            raise GraphQLError(
+                f"Error de conexión con la API: {str(e)}",
+                extensions={
+                    'code': 'CONNECTION_ERROR',
+                    'ruc': ruc
+                }
+            )
+        except Exception as e:
+            from graphql import GraphQLError
+            raise GraphQLError(
+                f"Error inesperado: {str(e)}",
+                extensions={
+                    'code': 'UNEXPECTED_ERROR',
+                    'ruc': ruc
+                }
+            )

@@ -43,11 +43,11 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',  # Para token tracking JWT
     'graphene_django',
     'django_filters',
     'corsheaders',
     'django_extensions',
-    'graphql_jwt.refresh_token',
     'axes',
     'drf_spectacular',
 ]
@@ -63,6 +63,8 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
+    'src.infrastructure.middleware.security_headers.SecurityHeadersMiddleware',
+    'src.infrastructure.middleware.security_headers.XSSProtectionMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -70,9 +72,9 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'src.infrastructure.middleware.jwt_auth.JWTAuthenticationMiddleware',
+    'src.infrastructure.middleware.jwt_auth.JWTCookieMiddleware',  # Para establecer cookies JWT
     'axes.middleware.AxesMiddleware',
-    'src.infrastructure.middleware.rate_limit.RateLimitMiddleware',
-    'src.infrastructure.middleware.security.SecurityMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -192,17 +194,14 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Authentication backends
 AUTHENTICATION_BACKENDS = [
-    'graphql_jwt.backends.JSONWebTokenBackend',
-    'django.contrib.auth.backends.ModelBackend',
-    'axes.backends.AxesStandaloneBackend',
+    'src.infrastructure.security.auth_backends.UsernameOnlyBackend',  # PRINCIPAL: SOLO Username
+    'axes.backends.AxesStandaloneBackend',  # Protección brute force
 ]
 
 # REST Framework configuration
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'src.infrastructure.security.cookie_jwt.CookieJWTAuthentication',
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',  # JWT PURO para API
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -215,8 +214,11 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle'
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '100/hour',
-        'user': '1000/hour'
+        'anon': '100/hour',           # Usuarios anónimos
+        'user': '1000/hour',          # Usuarios autenticados
+        'login': '10/min',            # Intentos de login
+        'password_reset': '5/hour',   # Reset de contraseña
+        'graphql': '200/hour',        # Consultas GraphQL
     },
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
@@ -228,23 +230,31 @@ REST_FRAMEWORK = {
     ],
 }
 
-# JWT Configuration
+# JWT Configuration (Sistema JWT PURO)
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=5),
-    'ROTATE_REFRESH_TOKENS': False,
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=config('JWT_ACCESS_TOKEN_LIFETIME', default=15, cast=int)),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=config('JWT_REFRESH_TOKEN_LIFETIME', default=5, cast=int)),
+    'ROTATE_REFRESH_TOKENS': config('JWT_ROTATE_REFRESH_TOKENS', default=False, cast=bool),
     'BLACKLIST_AFTER_ROTATION': False,
-    'UPDATE_LAST_LOGIN': True,
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': config('JWT_SECRET_KEY', default=SECRET_KEY),
     'VERIFYING_KEY': None,
     'AUDIENCE': None,
     'ISSUER': None,
-    'AUTH_HEADER_TYPES': ('Bearer',),
-    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
+    
+    # Configuración de cookies HttpOnly con nombres custom
+    'AUTH_COOKIE': 'djgredis_session',     # Access token
+    'AUTH_COOKIE_REFRESH': 'djgredis_auth', # Refresh token
+    'AUTH_COOKIE_HTTP_ONLY': True,
+    'AUTH_COOKIE_SECURE': not DEBUG,
+    'AUTH_COOKIE_SAMESITE': 'Lax' if DEBUG else 'None',
+    'AUTH_COOKIE_PATH': '/',
+    'AUTH_COOKIE_DOMAIN': None,
 }
+
+# JWT Authentication Settings (configuración ya está en SIMPLE_JWT arriba)
 
 # CORS settings
 CORS_ALLOWED_ORIGINS = [
@@ -252,15 +262,60 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:8080",
     "http://127.0.0.1:8080",
+    "http://localhost:4200",  # Angular frontend
+    "http://127.0.0.1:4200",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# CSRF Configuration
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000", 
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:4200",  # Angular frontend
+    "http://127.0.0.1:4200",
+]
+
+# URLs Base
+BASE_URL_FRONTEND = config('BASE_URL_FRONTEND', default="http://localhost:4200/")
+BASE_URL_BACKEND = config('BASE_URL_BACKEND', default="http://localhost:8000/api/v1/")
+BASE_URL_BACKEND_SHORT = config('BASE_URL_BACKEND_SHORT', default="http://localhost:8000/")
+
+# === Configuración JWT PURO ===
+# Toda la configuración JWT está en SIMPLE_JWT arriba
+
+# Configuración CSRF y Sesiones
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SAMESITE = 'Lax' if DEBUG else 'None'
+CSRF_COOKIE_SAMESITE = 'Lax' if DEBUG else 'None'
+CSRF_COOKIE_HTTPONLY = False  # El frontend debe poder leer 'csrftoken' para enviar X-CSRFToken
+CSRF_COOKIE_NAME = 'csrftoken'
+
+# Duración de la cookie de sesión de Django (admin, sesiones basadas en sesión)
+# 5 días en segundos y persistente aunque se cierre el navegador
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 5  # 5 días como JWT
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
 # Security settings
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
+# Configuración adicional de seguridad XSS
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin'
 
+# Configuración de sanitización
+XSS_LOG_ATTEMPTS = config('XSS_LOG_ATTEMPTS', default=True, cast=bool)
+
+# Sistema JWT PURO
+JWT_PURE_ENABLED = config('JWT_PURE_ENABLED', default=True, cast=bool)
+
+# Sistema JWT PURO
+# Configuración eliminada de sesiones opacas - ahora es JWT puro
+SESSION_AUTH_MAX_AGE = config('SESSION_AUTH_MAX_AGE', default=5 * 24 * 60 * 60, cast=int)  # 5 días
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SECURE_HSTS_SECONDS = 31536000
@@ -329,44 +384,13 @@ LOGGING = {
     },
 }
 
-# GraphQL Configuration
+# GraphQL Configuration (Sistema JWT PURO)
 GRAPHENE = {
     'SCHEMA': 'src.adapters.primary.graphql_api.schema.schema',
-    'MIDDLEWARE': [
-        'graphql_jwt.middleware.JSONWebTokenMiddleware',
-    ],
+    # 'MIDDLEWARE': [
+    #     'graphql_jwt.middleware.JSONWebTokenMiddleware',
+    # ],
 }
-
-# GraphQL JWT Configuration
-GRAPHQL_JWT = {
-    'JWT_ALGORITHM': 'HS256',
-    'JWT_SECRET_KEY': config('JWT_SECRET_KEY', default=SECRET_KEY),
-    'JWT_VERIFY_EXPIRATION': True,
-    'JWT_LONG_RUNNING_REFRESH_TOKEN': True,
-    'JWT_EXPIRATION_DELTA': timedelta(minutes=15),
-    'JWT_REFRESH_EXPIRATION_DELTA': timedelta(days=5),
-    'JWT_REUSE_REFRESH_TOKENS': True,
-    # Allow unauthenticated access to these mutations
-    'JWT_ALLOW_ANY_CLASSES': [
-        'graphql_jwt.mutations.ObtainJSONWebToken',
-        'graphql_jwt.mutations.Verify',
-        'graphql_jwt.mutations.Refresh',
-        'src.adapters.primary.graphql_api.mutations.TokenAuth',
-        'src.adapters.primary.graphql_api.mutations.ForgotPassword',
-        'src.adapters.primary.graphql_api.mutations.ResetPasswordWithCode',
-    ],
-    # Cookie settings for jwt_cookie decorator
-    'JWT_COOKIE_SECURE': not DEBUG,
-    'JWT_COOKIE_SAMESITE': 'Strict',
-    'JWT_COOKIE_NAME': 'JWT',
-    'JWT_REFRESH_TOKEN_COOKIE_NAME': 'JWT_REFRESH_TOKEN',
-    # Usamos /api/ para que las cookies lleguen a REST (/api/v1/...) y GraphQL
-    'JWT_COOKIE_PATH': '/api/',
-}
-
-# Cookie names para DRF (REST) usando SimpleJWT, para no chocar con la cookie de GraphQL
-DRF_JWT_COOKIE_NAME = 'DRF_JWT'
-DRF_JWT_REFRESH_COOKIE_NAME = 'DRF_JWT_REFRESH'
 
 # Email configuration
 EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
@@ -378,12 +402,13 @@ EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='no-reply@upeu.edu.pe')
 EMAIL_ENABLED = config('EMAIL_ENABLED', default=False, cast=bool)
 
-# reCAPTCHA settings
-# Nota: Secret visible solo para desarrollo temporal. En producción usar variables de entorno.
-RECAPTCHA_ENABLED = config('RECAPTCHA_ENABLED', default=False, cast=bool)
-RECAPTCHA_SECRET = config('RECAPTCHA_SECRET', default='6LeJF8srAAAAAD5yvB61_8lMb67T2ojpzB7roMHq')
-# Token especial para bypass en desarrollo (GraphiQL/Postman) cuando DEBUG=True
-RECAPTCHA_DEV_BYPASS_TOKEN = config('RECAPTCHA_DEV_BYPASS_TOKEN', default='dev-bypass')
+# Cloudflare Turnstile settings
+CLOUDFLARE_TURNSTILE_ENABLED = config('CLOUDFLARE_TURNSTILE_ENABLED', default=False, cast=bool)
+CLOUDFLARE_TURNSTILE_SITE_KEY = config('CLOUDFLARE_TURNSTILE_SITE_KEY', default='')
+CLOUDFLARE_TURNSTILE_SECRET_KEY = config('CLOUDFLARE_TURNSTILE_SECRET_KEY', default='')
+
+# CSP (Content Security Policy) settings
+CSP_ENABLED = config('CSP_ENABLED', default=True, cast=bool)
 
 # Frontend URL for password reset links
 FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')

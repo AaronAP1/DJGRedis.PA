@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GraphiQL Quickstart</title>
+  <!-- Cloudflare Turnstile Script -->
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>
     :root { --bg:#0f172a; --card:#111827; --fg:#e5e7eb; --muted:#94a3b8; --accent:#22d3ee; }
     html, body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
@@ -22,53 +24,63 @@
     code { background:#0b1220; padding:2px 6px; border-radius:6px; }
     small.note { color:#a1a1aa }
     .hint { color:#a7f3d0 }
-    .mt { margin-top: 10px; }
+    .cf-turnstile { margin: 4px 0; }
+    .cf-turnstile iframe { border-radius: 8px; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>GraphiQL Quickstart</h1>
-    <p>Atajos para abrir <code>/api/graphql/</code> con consultas pre-cargadas. Recomendado para desarrollo local.</p>
+    <p class="hint">Atajos para abrir <code>/api/graphql/</code> con consultas pre-cargadas. Sistema JWT PURO de autenticación.</p>
 
     <div class="card">
       <div class="row">
         <label>Base URL</label>
         <input id="baseUrl" value="" placeholder="http://localhost:8000" />
       </div>
-
       <div class="row"><small class="note">Debe apuntar al host donde corre Django. La consola GraphiQL está en <code>/api/graphql/</code>.</small></div>
     </div>
 
     <div class="grid mt">
       <div class="card half">
-        <h3>Login (cookies HttpOnly)</h3>
+        <h3>🔐 Login JWT</h3>
+        <p class="hint">Autentica con credenciales - Sistema JWT PURO: cookies JWT.</p>
         <div class="row">
-          <label>Username o Email</label>
-          <input id="loginUser" value="admin.general" />
+          <label>Username</label>
+          <input id="loginUser" value="admin.test" placeholder="solo username" />
         </div>
         <div class="row">
           <label>Password</label>
-          <input id="loginPass" value="Admin123!" />
+          <input id="loginPass" value="Admin123" />
         </div>
         <div class="row">
-          <label>reCAPTCHA token</label>
-          <input id="loginRecaptcha" placeholder="token v2" />
+          <label>Cloudflare Turnstile</label>
+          <div class="cf-turnstile" data-sitekey="0x4AAAAAAB54hAon_4XgENN8" data-callback="onTurnstileSuccess"></div>
         </div>
         <div class="row">
-          <button id="btnLogin">Abrir en GraphiQL</button>
+          <small class="hint">🔄 Sistema JWT PURO: Cookies `access_token` + `refresh_token`</small>
+        </div>
+        <div class="row">
+          <small class="note">🛡️ Protección: Cloudflare Turnstile</small>
+        </div>
+        <div class="row">
+          <button id="btnLogin">🔐 Abrir en GraphQL</button>
+          <button id="btnResetTurnstile" class="secondary" style="margin-left: 10px;">🔄 Reset Cloudflare</button>
         </div>
       </div>
 
       <div class="card half">
-        <h3>Mi perfil (me)</h3>
-        <p class="hint">Requiere que hayas hecho login (cookies JWT presentes).</p>
+        <h3>👤 Mi perfil</h3>
+        <p class="hint">Muestra tu información personal y los permisos de tu rol actual.</p>
         <div class="row">
-          <button id="btnMe">Abrir en GraphiQL</button>
+          <button id="btnMe">👤 Abrir en GraphQL</button>
+          <button id="btnAvatares">🎭 Ver Avatares</button>
         </div>
       </div>
 
       <div class="card half">
-        <h3>Update My Profile</h3>
+        <h3>✏️ Editar perfil</h3>
+        <p class="hint">Solo puedes editar tus nombres y apellidos (username y email NO se pueden cambiar).</p>
         <div class="row">
           <label>firstName</label>
           <input id="firstName" value="Admin" />
@@ -78,58 +90,58 @@
           <input id="lastName" value="General" />
         </div>
         <div class="row">
-          <label>username</label>
-          <input id="username" value="admin.general" />
-        </div>
-        <div class="row">
-          <button id="btnUpd">Abrir en GraphiQL</button>
+          <button id="btnUpd">✏️ Abrir en GraphQL</button>
         </div>
       </div>
 
       <div class="card half">
-        <h3>Upload Photo (URL)</h3>
-        <p class="hint">Se descargará la imagen desde la URL y se guardará como foto de perfil.</p>
+        <h3>🎭 Seleccionar Avatar</h3>
+        <p class="hint">Selecciona un avatar por ID de los disponibles para tu rol.</p>
         <div class="row">
-          <label>photoUrl</label>
-          <input id="photoUrl" placeholder="https://.../mi-foto.jpg" />
+          <label>Avatar ID</label>
+          <input id="avatarId" placeholder="UUID del avatar" />
         </div>
         <div class="row">
-          <button id="btnPhotoUrl">Abrir en GraphiQL</button>
+          <button id="btnSelectAvatar">🎭 Seleccionar Avatar</button>
+          <button id="btnRemoveAvatar" class="secondary" style="margin-left: 10px;">❌ Eliminar Avatar</button>
         </div>
       </div>
 
+
+
       <div class="card half">
-        <h3>Stable Refresh</h3>
+        <h3>🔄 Stable Refresh</h3>
         <p class="hint">Usa el refresh de cookie para obtener nuevo access sin rotar el refresh.</p>
         <div class="row">
-          <button id="btnStable">Abrir en GraphiQL</button>
+          <button id="btnStable">🔄 Abrir en GraphQL</button>
         </div>
       </div>
 
       <div class="card half">
-        <h3>Logout</h3>
+        <h3>🚪 Logout</h3>
         <div class="row">
-          <button id="btnLogout">Abrir en GraphiQL</button>
+          <button id="btnLogout">🚪 Abrir en GraphQL</button>
         </div>
       </div>
 
       <div class="card half">
-        <h3>Forgot Password (envía código)</h3>
+        <h3>📧 Forgot Password (envía código)</h3>
         <div class="row">
           <label>Email</label>
           <input id="fpEmail" value="admin@upeu.edu.pe" />
         </div>
         <div class="row">
-          <label>reCAPTCHA token</label>
-          <input id="fpRecaptcha" placeholder="token v2" />
+          <label>Cloudflare Turnstile</label>
+          <div class="cf-turnstile" data-sitekey="0x4AAAAAAB54hAon_4XgENN8" data-callback="onTurnstileSuccessForgot"></div>
         </div>
         <div class="row">
-          <button id="btnForgot">Abrir en GraphiQL</button>
+          <button id="btnForgot">📧 Abrir en GraphQL</button>
+          <button id="btnResetTurnstileForgot" class="secondary" style="margin-left: 10px;">🔄 Reset Cloudflare</button>
         </div>
       </div>
 
       <div class="card half">
-        <h3>Reset Password con código</h3>
+        <h3>🔓 Reset Password (con código)</h3>
         <div class="row">
           <label>Email</label>
           <input id="rpEmail" value="admin@upeu.edu.pe" />
@@ -147,15 +159,15 @@
           <input id="rpConf" value="NuevoPass!123" />
         </div>
         <div class="row">
-          <button id="btnReset">Abrir en GraphiQL</button>
+          <button id="btnReset">🔓 Abrir en GraphQL</button>
         </div>
       </div>
 
       <div class="card half">
-        <h3>Cambiar contraseña (con sesión)</h3>
+        <h3>🔑 Change password (con sesión)</h3>
         <div class="row">
           <label>Actual</label>
-          <input id="cpCur" value="Admin123!" />
+          <input id="cpCur" value="Admin123" />
         </div>
         <div class="row">
           <label>Nueva</label>
@@ -166,12 +178,85 @@
           <input id="cpConf" value="NuevoPass!123" />
         </div>
         <div class="row">
-          <button id="btnChangePwd">Abrir en GraphiQL</button>
+          <button id="btnChangePwd">🔑 Abrir en GraphQL</button>
         </div>
       </div>
 
       <div class="card half">
-        <h3>Crear usuario (manual, ADMIN)</h3>
+        <h3>👥 Listar usuarios (ADMIN)</h3>
+        <p class="hint">Muestra usuarios ordenados por fecha de creación (asc) y oculta tu propio usuario.</p>
+        <div class="row">
+          <button id="btnUsers">👥 Abrir en GraphQL</button>
+          <small class="note">Requiere sesión de administrador.</small>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid mt">
+      <div class="card half">
+        <h3>📋 Listar Roles (ADMIN)</h3>
+        <p class="hint">Ver todos los roles del sistema con sus permisos.</p>
+        <div class="row">
+          <button id="btnListRoles">📋 Abrir en GraphQL</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>🔐 Listar Permisos/Privilegios (ADMIN)</h3>
+        <p class="hint">Ver todos los permisos disponibles en el sistema.</p>
+        <div class="row">
+          <button id="btnListPermissions">🔐 Abrir en GraphQL</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid mt">
+      <div class="card half">
+        <h3>➕ Agregar Permiso a Rol (ADMIN)</h3>
+        <p class="hint">Agrega un permiso por defecto a un rol del sistema.</p>
+        <div class="row">
+          <label>Rol</label>
+          <select id="addPermToRoleRole">
+            <option>SUPERVISOR</option>
+            <option>COORDINADOR</option>
+            <option>SECRETARIA</option>
+            <option>ADMINISTRADOR</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>ID Permiso</label>
+          <input id="addPermToRolePermId" placeholder="UUID del permiso" />
+        </div>
+        <div class="row">
+          <button id="btnAddPermToRole">➕ Agregar a Rol</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>➖ Eliminar Permiso de Rol (ADMIN)</h3>
+        <p class="hint">Elimina un permiso por defecto de un rol del sistema.</p>
+        <div class="row">
+          <label>Rol</label>
+          <select id="removePermFromRoleRole">
+            <option>SUPERVISOR</option>
+            <option>COORDINADOR</option>
+            <option>SECRETARIA</option>
+            <option>ADMINISTRADOR</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>ID Permiso</label>
+          <input id="removePermFromRolePermId" placeholder="UUID del permiso" />
+        </div>
+        <div class="row">
+          <button id="btnRemovePermFromRole">➖ Eliminar de Rol</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid mt">
+      <div class="card half">
+        <h3>➕ Crear usuario (ADMIN)</h3>
         <div class="row">
           <label>Email</label>
           <input id="cuEmail" value="nuevo.usuario@upeu.edu.pe" />
@@ -211,23 +296,16 @@
           <select id="cuActive"><option value="true" selected>True</option><option value="false">False</option></select>
         </div>
         <div class="row">
-          <button id="btnCreateUser">Abrir en GraphiQL</button>
+          <button id="btnCreateUser">➕ Abrir en GraphQL</button>
         </div>
       </div>
 
       <div class="card half">
-        <h3>Editar usuario (ADMIN)</h3>
+        <h3>✏️ Editar usuario (ADMIN)</h3>
+        <p class="hint">ADMIN NO puede editar: username, email, ni password por seguridad.</p>
         <div class="row">
           <label>userId</label>
           <input id="uuId" placeholder="ID (GraphQL global o UUID)" />
-        </div>
-        <div class="row">
-          <label>email</label>
-          <input id="uuEmail" />
-        </div>
-        <div class="row">
-          <label>username</label>
-          <input id="uuUsername" />
         </div>
         <div class="row">
           <label>firstName</label>
@@ -257,54 +335,190 @@
           </select>
         </div>
         <div class="row">
-          <label>password</label>
-          <input id="uuPwd" placeholder="(opcional)" />
-        </div>
-        <div class="row">
-          <button id="btnUpdateUser">Abrir en GraphiQL</button>
+          <button id="btnUpdateUser">✏️ Abrir en GraphQL</button>
         </div>
       </div>
+    </div>
 
+    <div class="grid mt">
       <div class="card half">
-        <h3>Eliminar usuario (ADMIN)</h3>
+        <h3>🗑️ Eliminar usuario (ADMIN)</h3>
+        <p class="hint">Elimina permanentemente un usuario del sistema.</p>
         <div class="row">
           <label>userId</label>
           <input id="duId" placeholder="ID (GraphQL global o UUID)" />
         </div>
         <div class="row">
-          <button id="btnDeleteUser">Abrir en GraphiQL</button>
+          <button id="btnDeleteUser" style="background: #dc3545; color: white;">🗑️ Eliminar Usuario</button>
         </div>
       </div>
 
-      <div class="card">
-        <h3>Listar usuarios (ADMIN)</h3>
-        <p class="hint">Muestra usuarios ordenados por fecha de creación (asc) y oculta tu propio usuario.</p>
+      <div class="card half">
+        <h3>🏢 Buscar Empresa por RUC</h3>
+        <p class="hint">Busca información de empresa usando RUC (ADMIN/PRACTICANTE).</p>
         <div class="row">
-          <button id="btnUsers">Abrir en GraphiQL</button>
-          <small class="note">Requiere sesión de administrador.</small>
+          <label>RUC</label>
+          <input id="rucInput" placeholder="20131312955" maxlength="11" />
+        </div>
+        <div class="row">
+          <button id="btnBuscarRuc">🔍 Buscar Empresa</button>
         </div>
       </div>
+    </div>
 
+    <div class="grid mt">
       <div class="card">
-        <h3>Importar / Exportar usuarios (REST)</h3>
-        <p class="hint">Estas operaciones son solo <b>ADMIN</b> y se prueban en Swagger o Postman.</p>
+        <h3>📋 Gestión Masiva de Usuarios (REST - ADMIN)</h3>
+        <p class="hint">Estas operaciones son solo <b>ADMIN</b> y se ejecutan desde <strong>Swagger o Postman</strong>.</p>
         <div class="row">
-          <button id="btnSwagger" class="secondary">Abrir Swagger</button>
+          <button onclick="openSwagger()" class="secondary">🔧 Abrir Swagger</button>
           <small class="note">Si entras desde este navegador, REST aceptará la cookie JWT sin Authorization.</small>
         </div>
         <div class="row">
           <ul>
-            <li>Descargar plantilla: <code>GET /api/v1/users/import/template.xlsx</code></li>
-            <li>Vista previa importación: <code>POST /api/v1/users/import/preview</code> (form-data: file)</li>
-            <li>Confirmar importación: <code>POST /api/v1/users/import/confirm</code> (file, send_email)</li>
-            <li>Exportar: <code>GET /api/v1/users/export.xlsx</code> (filtros opcionales)</li>
+            <li>📥 <strong>Descargar plantilla PRACTICANTES:</strong> <code>GET /api/v1/users/import/template.xlsx</code></li>
+            <li>📤 <strong>Importar PRACTICANTES:</strong> <code>POST /api/v1/users/import/confirm</code> (file, send_email)</li>
+            <li>📊 <strong>Exportar TODOS los usuarios:</strong> <code>GET /api/v1/users/export.xlsx</code> (filtros opcionales)</li>
+          </ul>
+          <ul style="font-size: 13px; color: #666; margin: 8px 0;">
+            <li>• <strong>Importar:</strong> Solo usuarios PRACTICANTE con código estudiantil</li>
+            <li>• <strong>Exportar:</strong> Todos los usuarios del sistema (todos los roles)</li>
+            <li>• <strong>Email automático:</strong> Se envía bienvenida al importar</li>
           </ul>
         </div>
       </div>
     </div>
 
 
+    <div class="grid mt">
+      <div class="card half">
+        <h3>✅ Otorgar Permiso (ADMIN)</h3>
+        <p class="hint">Otorga un permiso adicional a un usuario (override).</p>
+        <div class="row">
+          <label>ID Usuario</label>
+          <input id="grantUserId" placeholder="UUID del usuario" />
+        </div>
+        <div class="row">
+          <label>ID Permiso</label>
+          <input id="grantPermId" placeholder="UUID del permiso" />
+        </div>
+        <div class="row">
+          <label>Razón</label>
+          <input id="grantReason" placeholder="Motivo del permiso especial" />
+        </div>
+        <div class="row">
+          <button id="btnGrantPerm">✅ Abrir en GraphQL</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>❌ Revocar Permiso (ADMIN)</h3>
+        <p class="hint">Revoca un permiso del rol de un usuario.</p>
+        <div class="row">
+          <label>ID Usuario</label>
+          <input id="revokeUserId" placeholder="UUID del usuario" />
+        </div>
+        <div class="row">
+          <label>ID Permiso</label>
+          <input id="revokePermId" placeholder="UUID del permiso" />
+        </div>
+        <div class="row">
+          <button id="btnRevokePerm">❌ Abrir en GraphQL</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid mt">
+      <div class="card half">
+        <h3>➕ Agregar Avatar (ADMIN)</h3>
+        <p class="hint">Crea un nuevo avatar para un rol específico.</p>
+        <div class="row">
+          <label>URL del Avatar</label>
+          <input id="addAvatarUrl" placeholder="https://ejemplo.com/avatar.jpg" />
+        </div>
+        <div class="row">
+          <label>Rol</label>
+          <select id="addAvatarRole">
+            <option>PRACTICANTE</option>
+            <option>SUPERVISOR</option>
+            <option>COORDINADOR</option>
+            <option>SECRETARIA</option>
+            <option>ADMINISTRADOR</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>Estado</label>
+          <select id="addAvatarActive">
+            <option value="true">Activo</option>
+            <option value="false">Inactivo</option>
+          </select>
+        </div>
+        <div class="row">
+          <button id="btnAddAvatar">➕ Crear Avatar</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>✏️ Editar Avatar (ADMIN)</h3>
+        <p class="hint">Modifica un avatar existente por ID.</p>
+        <div class="row">
+          <label>ID Avatar</label>
+          <input id="editAvatarId" placeholder="UUID del avatar" />
+        </div>
+        <div class="row">
+          <label>Nueva URL</label>
+          <input id="editAvatarUrl" placeholder="https://ejemplo.com/nuevo-avatar.jpg" />
+        </div>
+        <div class="row">
+          <label>Activo</label>
+          <select id="editAvatarActive">
+            <option value="">(no cambiar)</option>
+            <option value="true">Activo</option>
+            <option value="false">Inactivo</option>
+          </select>
+        </div>
+        <div class="row">
+          <button id="btnEditAvatar">✏️ Actualizar Avatar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid mt">
+      <div class="card half">
+        <h3>🗑️ Eliminar Avatar (ADMIN)</h3>
+        <p class="hint">Elimina permanentemente un avatar del sistema.</p>
+        <div class="row">
+          <label>ID Avatar</label>
+          <input id="deleteAvatarId" placeholder="UUID del avatar" />
+        </div>
+        <div class="row">
+          <button id="btnDeleteAvatar" style="background: #dc3545; color: white;">🗑️ Eliminar Avatar</button>
+        </div>
+      </div>
+
+      <div class="card half">
+        <h3>📋 Listar Avatares por Rol (ADMIN)</h3>
+        <p class="hint">Ve todos los avatares disponibles por rol.</p>
+        <div class="row">
+          <label>Rol (opcional)</label>
+          <select id="listAvatarsRole">
+            <option value="">(todos los roles)</option>
+            <option>PRACTICANTE</option>
+            <option>SUPERVISOR</option>
+            <option>COORDINADOR</option>
+            <option>SECRETARIA</option>
+            <option>ADMINISTRADOR</option>
+          </select>
+        </div>
+        <div class="row">
+          <button id="btnListAvatars">📋 Listar Avatares</button>
+        </div>
+      </div>
+    </div>
+
+
   </div>
+
 
   <script>
     const qsUrl = (base, query, variables, opName) => {
@@ -321,28 +535,58 @@
     const openNamed = (name, url) => window.open(url, name);
     const openNew = (u) => openNamed('_blank', u);
 
-    const qLogin = `mutation Login($username:String!, $password:String!, $recaptchaToken:String!) {\n  tokenAuth(username:$username, password:$password, recaptchaToken:$recaptchaToken) {\n    success\n    message\n    user { id email role username nombreCompleto nombres apellidos photoUrl isActive lastLogin }\n  }\n}`;
+    const qLogin = `mutation JWTLogin($username:String!, $password:String!, $cloudflareToken:String) {\n  jwtLogin(username:$username, password:$password, cloudflareToken:$cloudflareToken) {\n    success\n    message\n    user { id email role username nombreCompleto nombres apellidos photoUrl isActive lastLogin }\n  }\n}`;
 
-    const qMe = `query {\n  me { id email role username nombreCompleto nombres apellidos codigoEstudiante photoUrl lastLogin }\n}`;
+    const qMe = `query {\n  me { \n    id \n    email \n    role \n    username \n    nombreCompleto \n    nombres \n    apellidos \n    codigoEstudiante \n    photoUrl \n    lastLogin\n    # Permisos del rol\n    rolePermissions {\n      id\n      code\n      name\n      description\n      module\n    }\n  }\n}`;
 
     const qUpd = `mutation UpdateMyProfile($input: ProfileInput!) {\n  updateMyProfile(input:$input) { success message user { id username nombres apellidos nombreCompleto photoUrl } }\n}`;
 
-    const qPhotoUrl = `mutation UploadPhotoUrl($url:String!){\n  uploadMyPhotoUrl(photoUrl:$url){ success message photoUrl }\n}`;
+    const qSelectAvatar = `mutation SelectMyAvatar($avatarId: ID!) {\n  selectMyAvatar(avatarId: $avatarId) {\n    success\n    message\n    user {\n      id\n      avatar {\n        id\n        url\n        role\n      }\n    }\n  }\n}`;
 
-    const qStable = `mutation { stableRefresh { token refreshToken message } }`;
+    const qRemoveAvatar = `mutation RemoveMyAvatar {\n  removeMyAvatar {\n    success\n    message\n    user {\n      id\n      avatar {\n        id\n        url\n      }\n    }\n  }\n}`;
 
-    const qLogout = `mutation { logout { success message } }`;
-    const qUsers = `query {\n  users {\n    edges {\n      node { id email username role isActive createdAt nombreCompleto nombres apellidos codigoEstudiante photoUrl }\n    }\n  }\n}`;
+    const qAvatares = `query {\n  avatarsByRole {\n    id\n    url\n    role\n    isActive\n  }\n}`;
+
+    const qBuscarRuc = `query BuscarEmpresa($ruc: String!) {\n  buscarEmpresaRuc(ruc: $ruc) {\n    ruc\n    razonSocial\n    nombreComercial\n    direccion\n    departamento\n    provincia\n    distrito\n    estado\n    condicion\n  }\n}`;
+
+    const qStable = `mutation { jwtRefresh { success message } }`;
+
+    const qLogout = `mutation { jwtLogout { success message } }`;
+    const qUsers = `query {\n  users {\n    edges {\n      node { \n        id uuid email username role isActive createdAt nombreCompleto nombres apellidos codigoEstudiante photoUrl\n        roleObj { code name permissions { code name module } }\n      }\n    }\n  }\n}`;
 
     // Nuevas operaciones
-    const qForgot = `mutation Forgot($email:String!, $recaptchaToken:String!){\n  forgotPassword(email:$email, recaptchaToken:$recaptchaToken){ success message code }\n}`;
+    const qForgot = `mutation Forgot($email:String!, $cloudflareToken:String!){\n  forgotPassword(email:$email, cloudflareToken:$cloudflareToken){ success message code }\n}`;
     const qReset = `mutation Reset($email:String!, $code:String!, $pwd:String!, $conf:String!){\n  resetPasswordWithCode(email:$email, code:$code, newPassword:$pwd, confirmPassword:$conf){ success message }\n}`;
     const qChange = `mutation ChangePwd($current:String!, $new:String!, $confirm:String!){\n  changePassword(currentPassword:$current, newPassword:$new, confirmPassword:$confirm){ success message }\n}`;
     const qCreate = `mutation CreateUser($input: UserInput!){\n  createUser(input:$input){ success message user { id email role username nombres apellidos } }\n}`;
     const qUpdateUser = `mutation UpdateUser($id:ID!, $input: UserUpdateInput!){\n  updateUser(id:$id, input:$input){ success message user { id email username role isActive } }\n}`;
     const qDeleteUser = `mutation DeleteUser($id:ID!){\n  deleteUser(id:$id){ success message }\n}`;
 
+    // Roles y Permisos
+    const qMyPerms = `query {\n  myPermissionsInfo {\n    role { id code name }\n    rolePermissions { id code name module }\n    customPermissions { id permission { code name } permissionType reason expiresAt }\n    allPermissions\n  }\n}`;
+    const qListRoles = `query {\n  roles {\n    id \n    code \n    name \n    description \n    isActive \n    isSystem\n    permissionsCount\n    usersCount\n    permissions { \n      id \n      code \n      name \n      description \n      module \n    }\n  }\n}`;
+    
+    const qListPermissions = `query {\n  permissions {\n    id\n    code\n    name\n    description\n    module\n  }\n}`;
+    const qCreateRole = `mutation CreateRole($input: RoleInput!){\n  createRole(input:$input){ success message role { id code name } }\n}`;
+    const qGrantPerm = `mutation GrantPerm($userId:ID!, $permId:ID!, $reason:String){\n  grantUserPermission(userId:$userId, permissionId:$permId, reason:$reason){ success message }\n}`;
+    const qRevokePerm = `mutation RevokePerm($userId:ID!, $permId:ID!, $reason:String){\n  revokeUserPermission(userId:$userId, permissionId:$permId, reason:$reason){ success message }\n}`;
+    
+    // Gestión de Permisos de Roles (Global)
+    const qAddPermToRole = `mutation AddPermissionToRole($roleCode: String!, $permissionId: ID!) {\n  addPermissionToRole(roleCode: $roleCode, permissionId: $permissionId) {\n    success\n    message\n    role {\n      id\n      code\n      name\n      permissions {\n        id\n        code\n        name\n      }\n    }\n  }\n}`;
+    
+    const qRemovePermFromRole = `mutation RemovePermissionFromRole($roleCode: String!, $permissionId: ID!) {\n  removePermissionFromRole(roleCode: $roleCode, permissionId: $permissionId) {\n    success\n    message\n    role {\n      id\n      code\n      name\n      permissions {\n        id\n        code\n        name\n      }\n    }\n  }\n}`;
+
+    // Gestión de Avatares (ADMIN)
+    const qCreateAvatar = `mutation CreateAvatar($url: String!, $role: String!, $isActive: Boolean!) {\n  createAvatar(url: $url, role: $role, isActive: $isActive) {\n    success\n    message\n    avatar {\n      id\n      url\n      role\n      isActive\n    }\n  }\n}`;
+
+    const qUpdateAvatar = `mutation UpdateAvatar($id: ID!, $url: String, $isActive: Boolean) {\n  updateAvatar(id: $id, url: $url, isActive: $isActive) {\n    success\n    message\n    avatar {\n      id\n      url\n      role\n      isActive\n    }\n  }\n}`;
+
+    const qDeleteAvatar = `mutation DeleteAvatar($id: ID!) {\n  deleteAvatar(id: $id) {\n    success\n    message\n  }\n}`;
+
+    const qListAllAvatars = `query listAvatars($role: String) {\n  listAvatars(role: $role) {\n    id\n    url\n    role\n    isActive\n    createdAt\n  }\n}`;
+
     const $ = (id) => document.getElementById(id);
+    console.log('Quickstart script loaded!');
     // Prefill Base URL with current origin if empty to avoid cookie host mismatch (localhost vs 127.0.0.1)
     try {
       const _b = $('baseUrl');
@@ -351,15 +595,76 @@
       }
     } catch (e) {}
 
+    // Variables globales para tokens de Cloudflare
+    let cloudflareTokenLogin = null;
+    let cloudflareTokenForgot = null;
+
+    // Callbacks para diferentes widgets de Cloudflare
+    window.onTurnstileSuccess = function(token) {
+      cloudflareTokenLogin = token;
+      console.log('Cloudflare Turnstile Login completado:', token.substring(0, 20) + '...');
+    };
+
+    window.onTurnstileSuccessForgot = function(token) {
+      cloudflareTokenForgot = token;
+      console.log('Cloudflare Turnstile Forgot Password completado:', token.substring(0, 20) + '...');
+    };
+
+    // Función para resetear widgets de Cloudflare
+    function resetTurnstileWidgets() {
+      try {
+        // Reset del widget de login
+        const loginWidget = document.querySelector('.cf-turnstile[data-callback="onTurnstileSuccess"]');
+        if (loginWidget && window.turnstile) {
+          window.turnstile.reset(loginWidget);
+          cloudflareTokenLogin = null;
+          console.log('Widget de login reseteado');
+        }
+        
+        // Reset del widget de forgot password
+        const forgotWidget = document.querySelector('.cf-turnstile[data-callback="onTurnstileSuccessForgot"]');
+        if (forgotWidget && window.turnstile) {
+          window.turnstile.reset(forgotWidget);
+          cloudflareTokenForgot = null;
+          console.log('Widget de forgot password reseteado');
+        }
+      } catch (e) {
+        console.log('Error reseteando widgets:', e);
+      }
+    }
+
     $('btnLogin').onclick = () => {
       const base = $('baseUrl').value;
+      
+      if (!cloudflareTokenLogin) { 
+        alert('Por favor completa la verificación de Cloudflare Turnstile primero.'); 
+        return; 
+      }
+      
       const variables = {
         username: $('loginUser').value,
         password: $('loginPass').value,
-        recaptchaToken: $('loginRecaptcha').value
+        cloudflareToken: cloudflareTokenLogin
       };
-      if (!variables.recaptchaToken) { alert('Ingresa el token de reCAPTCHA (v2)'); return; }
-      openNamed('GraphiQL-Login', qsUrl(base, qLogin, variables, 'Login'));
+      
+      // Resetear el widget después de usar el token
+      setTimeout(() => {
+        resetTurnstileWidgets();
+      }, 1000);
+      
+      openNamed('GraphiQL-JWTLogin', qsUrl(base, qLogin, variables, 'JWTLogin'));
+    };
+
+    // Botón manual para resetear Cloudflare
+    $('btnResetTurnstile').onclick = () => {
+      resetTurnstileWidgets();
+      alert('Widgets de Cloudflare Turnstile reseteados. Puedes completar la verificación nuevamente.');
+    };
+
+    // Botón manual para resetear Cloudflare en Forgot Password
+    $('btnResetTurnstileForgot').onclick = () => {
+      resetTurnstileWidgets();
+      alert('Widgets de Cloudflare Turnstile reseteados. Puedes completar la verificación nuevamente.');
     };
 
     $('btnMe').onclick = () => {
@@ -369,16 +674,26 @@
 
     $('btnUpd').onclick = () => {
       const base = $('baseUrl').value;
-      const variables = { input: { firstName: $('firstName').value, lastName: $('lastName').value, username: $('username').value } };
+      const variables = { input: { firstName: $('firstName').value, lastName: $('lastName').value } };
       openNamed('GraphiQL-UpdateMyProfile', qsUrl(base, qUpd, variables, 'UpdateMyProfile'));
     };
 
-    $('btnPhotoUrl').onclick = () => {
+    $('btnSelectAvatar').onclick = () => {
       const base = $('baseUrl').value;
-      const url = $('photoUrl').value;
-      if (!url) { alert('Ingresa una URL de imagen'); return; }
-      const variables = { url };
-      openNamed('GraphiQL-UploadPhotoUrl', qsUrl(base, qPhotoUrl, variables, 'UploadPhotoUrl'));
+      const avatarId = $('avatarId').value.trim();
+      if (!avatarId) { alert('Ingresa el ID del avatar'); return; }
+      const variables = { avatarId };
+      openNamed('GraphiQL-SelectAvatar', qsUrl(base, qSelectAvatar, variables, 'SelectMyAvatar'));
+    };
+
+    $('btnRemoveAvatar').onclick = () => {
+      const base = $('baseUrl').value;
+      openNamed('GraphiQL-RemoveAvatar', qsUrl(base, qRemoveAvatar, null, 'RemoveMyAvatar'));
+    };
+
+    $('btnAvatares').onclick = () => {
+      const base = $('baseUrl').value;
+      openNamed('GraphiQL-Avatares', qsUrl(base, qAvatares));
     };
 
     $('btnStable').onclick = () => {
@@ -394,8 +709,19 @@
     // Forgot Password
     $('btnForgot').onclick = () => {
       const base = $('baseUrl').value;
-      const variables = { email: $('fpEmail').value, recaptchaToken: $('fpRecaptcha').value };
-      if (!variables.recaptchaToken) { alert('Ingresa el token de reCAPTCHA (v2)'); return; }
+      
+      if (!cloudflareTokenForgot) { 
+        alert('Por favor completa la verificación de Cloudflare Turnstile para Forgot Password.'); 
+        return; 
+      }
+      
+      const variables = { email: $('fpEmail').value, cloudflareToken: cloudflareTokenForgot };
+      
+      // Resetear el widget después de usar el token
+      setTimeout(() => {
+        resetTurnstileWidgets();
+      }, 1000);
+      
       openNamed('GraphiQL-Forgot', qsUrl(base, qForgot, variables, 'Forgot'));
     };
 
@@ -426,20 +752,18 @@
       openNamed('GraphiQL-CreateUser', qsUrl(base, qCreate, variables, 'CreateUser'));
     };
 
-    // Update User (ADMIN)
+    // Update User (ADMIN) - Solo campos permitidos: firstName, lastName, role, isActive
     $('btnUpdateUser').onclick = () => {
       const base = $('baseUrl').value;
       const id = $('uuId').value.trim();
       if (!id) { alert('Ingresa userId'); return; }
       const input = {};
       const v = (x) => (x || '').trim();
-      const e = v($('uuEmail').value); if (e) input.email = e;
-      const u = v($('uuUsername').value); if (u) input.username = u;
+      // ADMIN NO puede editar: email, username, password
       const f = v($('uuFirst').value); if (f) input.firstName = f;
       const l = v($('uuLast').value); if (l) input.lastName = l;
       const r = $('uuRole').value; if (r) input.role = r;
       const a = $('uuActive').value; if (a !== '') input.isActive = (a === 'true');
-      const p = v($('uuPwd').value); if (p) input.password = p;
       const variables = { id, input };
       openNamed('GraphiQL-UpdateUser', qsUrl(base, qUpdateUser, variables, 'UpdateUser'));
     };
@@ -453,17 +777,622 @@
       openNamed('GraphiQL-DeleteUser', qsUrl(base, qDeleteUser, variables, 'DeleteUser'));
     };
 
+    // Buscar Empresa por RUC (ADMIN/PRACTICANTE)
+    $('btnBuscarRuc').onclick = () => {
+      const base = $('baseUrl').value;
+      const ruc = $('rucInput').value.trim();
+      if (!ruc) { alert('Ingresa un RUC'); return; }
+      if (ruc.length !== 11 || !/^\d+$/.test(ruc)) { 
+        alert('RUC debe tener exactamente 11 dígitos'); 
+        return; 
+      }
+      const variables = { ruc };
+      openNamed('GraphiQL-BuscarRuc', qsUrl(base, qBuscarRuc, variables, 'BuscarEmpresa'));
+    };
+
     // Listar usuarios
     $('btnUsers').onclick = () => {
       const base = $('baseUrl').value;
       openNamed('GraphiQL-Users', qsUrl(base, qUsers));
     };
 
-    // Abrir Swagger con el mismo host del Base URL
-    $('btnSwagger').onclick = () => {
-      const base = $('baseUrl').value.replace(/\/$/, '');
-      openNew(base + '/api/docs/');
+    // Roles y Permisos
+    const btnMyProfile = $('btnMyProfile');
+    if (btnMyProfile) {
+      btnMyProfile.onclick = () => {
+        const base = $('baseUrl').value;
+        const qMyProfile = `query {
+  me { 
+    id 
+    email 
+    role 
+    username 
+    nombreCompleto 
+    nombres 
+    apellidos 
+    codigoEstudiante 
+    photoUrl 
+    lastLogin 
+  }
+}`;
+        openNamed('GraphiQL-MyProfile', qsUrl(base, qMyProfile));
+      };
+    }
+
+    const btnMyPerms = $('btnMyPerms');
+    if (btnMyPerms) {
+      btnMyPerms.onclick = () => {
+        const base = $('baseUrl').value;
+        openNamed('GraphiQL-MyPerms', qsUrl(base, qMyPerms));
+      };
+    }
+
+    const btnJWTRefresh = $('btnJWTRefresh');
+    if (btnJWTRefresh) {
+      btnJWTRefresh.onclick = () => {
+        const base = $('baseUrl').value;
+        const qRefresh = `mutation {
+  jwtRefresh {
+    success
+    message
+  }
+}`;
+        openNamed('GraphiQL-JWTRefresh', qsUrl(base, qRefresh));
+      };
+    }
+
+    const btnCreateRole = $('btnCreateRole');
+    if (btnCreateRole) {
+      btnCreateRole.onclick = () => {
+        const base = $('baseUrl').value;
+        const input = { 
+          code: $('roleCode').value, 
+          name: $('roleName').value 
+        };
+        const variables = { input };
+        openNamed('GraphiQL-CreateRole', qsUrl(base, qCreateRole, variables, 'CreateRole'));
+      };
+    }
+
+
+    const btnGrantPerm = $('btnGrantPerm');
+    if (btnGrantPerm) {
+      btnGrantPerm.onclick = () => {
+        console.log('Botón Otorgar Permiso clickeado!');
+        const base = $('baseUrl').value;
+        const userId = $('grantUserId').value.trim();
+        const permId = $('grantPermId').value.trim();
+        const reason = $('grantReason').value.trim() || null;
+        
+        if (!base) { alert('Por favor ingresa la Base URL'); return; }
+        if (!userId || !permId) { alert('Ingresa userId y permissionId'); return; }
+        
+        const variables = { userId, permId, reason };
+        console.log('Variables:', variables);
+        
+        try {
+          const graphqlUrl = qsUrl(base, qGrantPerm, variables, 'GrantPerm');
+          console.log('URL GraphQL:', graphqlUrl);
+          openNamed('GraphiQL-GrantPerm', graphqlUrl);
+        } catch (error) {
+          console.error('Error:', error);
+          alert('Error al generar la URL de GraphQL');
+        }
+      };
+    } else {
+      console.error('Botón btnGrantPerm no encontrado');
+    }
+
+    const btnRevokePerm = $('btnRevokePerm');
+    if (btnRevokePerm) {
+      btnRevokePerm.onclick = () => {
+        console.log('Botón Revocar Permiso clickeado!');
+        const base = $('baseUrl').value;
+        const userId = $('revokeUserId').value.trim();
+        const permId = $('revokePermId').value.trim();
+        
+        if (!base) { alert('Por favor ingresa la Base URL'); return; }
+        if (!userId || !permId) { alert('Ingresa userId y permissionId'); return; }
+        
+        const variables = { userId, permId };
+        console.log('Variables:', variables);
+        
+        try {
+          const graphqlUrl = qsUrl(base, qRevokePerm, variables, 'RevokePerm');
+          console.log('URL GraphQL:', graphqlUrl);
+          openNamed('GraphiQL-RevokePerm', graphqlUrl);
+        } catch (error) {
+          console.error('Error:', error);
+          alert('Error al generar la URL de GraphQL');
+        }
+      };
+    } else {
+      console.error('Botón btnRevokePerm no encontrado');
+    }
+
+    // Gestión de Permisos de Roles (Global)
+    const btnAddPermToRole = $('btnAddPermToRole');
+    if (btnAddPermToRole) {
+      btnAddPermToRole.onclick = () => {
+        console.log('Botón Agregar Permiso a Rol clickeado!');
+        const base = $('baseUrl').value;
+        const roleCode = $('addPermToRoleRole').value;
+        const permissionId = $('addPermToRolePermId').value.trim();
+        console.log('Base:', base, 'Role:', roleCode, 'PermissionId:', permissionId);
+        
+        if (!base) { alert('Por favor ingresa la Base URL'); return; }
+        if (!roleCode || !permissionId) { alert('Rol y ID de Permiso son obligatorios'); return; }
+        
+        const variables = { roleCode, permissionId };
+        console.log('Variables:', variables);
+        
+        try {
+          const graphqlUrl = qsUrl(base, qAddPermToRole, variables, 'AddPermissionToRole');
+          console.log('URL GraphQL:', graphqlUrl);
+          openNamed('GraphiQL-AddPermToRole', graphqlUrl);
+        } catch (error) {
+          console.error('Error:', error);
+          alert('Error al generar la URL de GraphQL');
+        }
+      };
+    } else {
+      console.error('Botón btnAddPermToRole no encontrado');
+    }
+
+    const btnRemovePermFromRole = $('btnRemovePermFromRole');
+    if (btnRemovePermFromRole) {
+      btnRemovePermFromRole.onclick = () => {
+        console.log('Botón Eliminar Permiso de Rol clickeado!');
+        const base = $('baseUrl').value;
+        const roleCode = $('removePermFromRoleRole').value;
+        const permissionId = $('removePermFromRolePermId').value.trim();
+        console.log('Base:', base, 'Role:', roleCode, 'PermissionId:', permissionId);
+        
+        if (!base) { alert('Por favor ingresa la Base URL'); return; }
+        if (!roleCode || !permissionId) { alert('Rol y ID de Permiso son obligatorios'); return; }
+        
+        const variables = { roleCode, permissionId };
+        console.log('Variables:', variables);
+        
+        try {
+          const graphqlUrl = qsUrl(base, qRemovePermFromRole, variables, 'RemovePermissionFromRole');
+          console.log('URL GraphQL:', graphqlUrl);
+          openNamed('GraphiQL-RemovePermFromRole', graphqlUrl);
+        } catch (error) {
+          console.error('Error:', error);
+          alert('Error al generar la URL de GraphQL');
+        }
+      };
+    } else {
+      console.error('Botón btnRemovePermFromRole no encontrado');
+    }
+
+    // Gestión de Avatares (ADMIN)
+    const btnAddAvatar = $('btnAddAvatar');
+    if (btnAddAvatar) {
+      btnAddAvatar.onclick = () => {
+        console.log('Botón Crear Avatar clickeado!');
+        const base = $('baseUrl').value;
+        const url = $('addAvatarUrl').value.trim();
+        const role = $('addAvatarRole').value;
+        const isActive = $('addAvatarActive').value === 'true';
+        console.log('Base:', base, 'URL:', url, 'Role:', role, 'Active:', isActive);
+        
+        if (!base) { alert('Por favor ingresa la Base URL'); return; }
+        if (!url || !role) { alert('URL y Rol son obligatorios'); return; }
+        
+        const variables = { url, role, isActive };
+        console.log('Variables:', variables);
+        
+        try {
+          const graphqlUrl = qsUrl(base, qCreateAvatar, variables, 'CreateAvatar');
+          console.log('URL GraphQL:', graphqlUrl);
+          openNamed('GraphiQL-CreateAvatar', graphqlUrl);
+        } catch (error) {
+          console.error('Error:', error);
+          alert('Error al generar la URL de GraphQL');
+        }
+      };
+    } else {
+      console.error('Botón btnAddAvatar no encontrado');
+    }
+
+    const btnEditAvatar = $('btnEditAvatar');
+    if (btnEditAvatar) {
+      btnEditAvatar.onclick = () => {
+        console.log('Botón Editar Avatar clickeado!');
+        const base = $('baseUrl').value;
+        const id = $('editAvatarId').value.trim();
+        console.log('Base:', base, 'ID:', id);
+        
+        if (!base) { alert('Por favor ingresa la Base URL'); return; }
+        if (!id) { alert('ID del avatar es obligatorio'); return; }
+        
+        const input = {};
+        const url = $('editAvatarUrl').value.trim();
+        const active = $('editAvatarActive').value;
+        if (url) input.url = url;
+        if (active !== '') input.isActive = (active === 'true');
+        
+        const variables = { id, ...input };
+        console.log('Variables:', variables);
+        
+        try {
+          const graphqlUrl = qsUrl(base, qUpdateAvatar, variables, 'UpdateAvatar');
+          console.log('URL GraphQL:', graphqlUrl);
+          openNamed('GraphiQL-UpdateAvatar', graphqlUrl);
+        } catch (error) {
+          console.error('Error:', error);
+          alert('Error al generar la URL de GraphQL');
+        }
+      };
+    } else {
+      console.error('Botón btnEditAvatar no encontrado');
+    }
+
+    const btnDeleteAvatar = $('btnDeleteAvatar');
+    if (btnDeleteAvatar) {
+      btnDeleteAvatar.onclick = () => {
+        console.log('Botón Eliminar Avatar clickeado!');
+        const base = $('baseUrl').value;
+        const id = $('deleteAvatarId').value.trim();
+        console.log('Base:', base, 'ID:', id);
+        
+        if (!base) { alert('Por favor ingresa la Base URL'); return; }
+        if (!id) { alert('ID del avatar es obligatorio'); return; }
+        
+        const variables = { id };
+        console.log('Variables:', variables);
+        
+        try {
+          const graphqlUrl = qsUrl(base, qDeleteAvatar, variables, 'DeleteAvatar');
+          console.log('URL GraphQL:', graphqlUrl);
+          openNamed('GraphiQL-DeleteAvatar', graphqlUrl);
+        } catch (error) {
+          console.error('Error:', error);
+          alert('Error al generar la URL de GraphQL');
+        }
+      };
+    } else {
+      console.error('Botón btnDeleteAvatar no encontrado');
+    }
+
+    const btnListAvatars = $('btnListAvatars');
+    if (btnListAvatars) {
+      btnListAvatars.onclick = () => {
+      console.log('Botón Listar Avatares clickeado!');
+      const base = $('baseUrl').value;
+      const role = $('listAvatarsRole').value;
+      console.log('Base URL:', base);
+      console.log('Rol seleccionado:', role);
+      
+      if (!base) {
+        alert('Por favor ingresa la Base URL');
+        return;
+      }
+      
+      const variables = role ? { role } : {};
+      console.log('Variables para GraphQL:', variables);
+      
+      try {
+        const url = qsUrl(base, qListAllAvatars, variables, 'listAvatars');
+        console.log('URL final:', url);
+        openNamed('GraphiQL-ListAvatars', url);
+      } catch (error) {
+        console.error('Error al generar URL:', error);
+        alert('Error al generar la URL de GraphQL');
+      }
     };
+    } else {
+      console.error('Botón btnListAvatars no encontrado');
+    }
+
+    // Botón Listar Roles
+    const btnListRoles = $('btnListRoles');
+    if (btnListRoles) {
+      btnListRoles.onclick = () => {
+        console.log('Botón Listar Roles clickeado!');
+        const base = $('baseUrl').value;
+        
+        if (!base) { alert('Por favor ingresa la Base URL'); return; }
+        
+        try {
+          const graphqlUrl = qsUrl(base, qListRoles, {});
+          console.log('URL GraphQL:', graphqlUrl);
+          openNamed('GraphiQL-ListRoles', graphqlUrl);
+        } catch (error) {
+          console.error('Error:', error);
+          alert('Error al generar la URL de GraphQL');
+        }
+      };
+    } else {
+      console.error('Botón btnListRoles no encontrado');
+    }
+
+    // Botón Listar Permisos
+    const btnListPermissions = $('btnListPermissions');
+    if (btnListPermissions) {
+      btnListPermissions.onclick = () => {
+        console.log('Botón Listar Permisos clickeado!');
+        const base = $('baseUrl').value;
+        
+        if (!base) { alert('Por favor ingresa la Base URL'); return; }
+        
+        try {
+          const graphqlUrl = qsUrl(base, qListPermissions, {});
+          console.log('URL GraphQL:', graphqlUrl);
+          openNamed('GraphiQL-ListPermissions', graphqlUrl);
+        } catch (error) {
+          console.error('Error:', error);
+          alert('Error al generar la URL de GraphQL');
+        }
+      };
+    } else {
+      console.error('Botón btnListPermissions no encontrado');
+    }
+
+    // Función para cargar datos del usuario en editar
+    async function loadUserData() {
+      const userId = $('uuId').value.trim();
+      if (!userId) {
+        alert('Por favor ingresa el ID del usuario');
+        return;
+      }
+
+      const base = $('baseUrl').value;
+      if (!base) {
+        alert('Por favor configura la Base URL');
+        return;
+      }
+
+      try {
+        // Query para obtener datos del usuario
+        const query = `query GetUser($id: ID!) {
+          user(id: $id) {
+            id
+            email
+            username
+            firstName
+            lastName
+            role
+            isActive
+          }
+        }`;
+
+        const response = await fetch(`${base}/graphql/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+          },
+          body: JSON.stringify({
+            query: query,
+            variables: { id: userId }
+          })
+        });
+
+        const result = await response.json();
+        
+        if (result.errors) {
+          alert('Error: ' + result.errors[0].message);
+          return;
+        }
+
+        const user = result.data.user;
+        if (!user) {
+          alert('Usuario no encontrado');
+          return;
+        }
+
+        // Llenar los campos con los datos del usuario
+        $('uuFirst').value = user.firstName || '';
+        $('uuLast').value = user.lastName || '';
+        $('uuRole').value = user.role || '';
+        $('uuActive').value = user.isActive ? 'true' : 'false';
+
+        console.log('Datos del usuario cargados:', user);
+        alert('Datos del usuario cargados correctamente');
+
+      } catch (error) {
+        console.error('Error al cargar datos:', error);
+        alert('Error al cargar los datos del usuario');
+      }
+    }
+
+    // Función para abrir Swagger
+    function openSwagger() {
+      console.log('Opening Swagger...');
+      const base = document.getElementById('baseUrl').value.replace(/\/$/, '');
+      console.log('Base URL:', base);
+      const swaggerUrl = base + '/api/docs/';
+      console.log('Swagger URL:', swaggerUrl);
+      window.open(swaggerUrl, 'Swagger-Docs');
+    }
+
+    // Función principal para listar roles
+    function openListRoles() {
+      console.log('openListRoles function called!');
+      const base = document.getElementById('baseUrl').value;
+      console.log('Base URL:', base);
+      const query = `query {
+  roles {
+    id 
+    code 
+    name 
+    description 
+    isActive 
+    isSystem
+    permissionsCount
+    usersCount
+    permissions { 
+      id 
+      code 
+      name 
+      description 
+      module 
+    }
+  }
+}`;
+      const url = new URL(base.replace(/\/$/, '') + '/api/graphql/');
+      url.searchParams.set('query', query);
+      url.searchParams.set('prefill', '1');
+      console.log('Generated URL:', url.toString());
+      window.open(url.toString(), 'GraphiQL-ListRoles');
+    }
+
+    // Función de prueba para btnListRoles
+    function testListRoles() {
+      console.log('Test function called!');
+      alert('Test function works!');
+      openListRoles(); // Usar la misma función
+    }
+
+    // Variables globales para gestión de permisos
+    let allPermissions = [];
+    let selectedPermissions = {
+      create: [],
+      edit: []
+    };
+
+    // Cargar todos los permisos disponibles
+    async function loadAllPermissions() {
+      if (allPermissions.length > 0) return allPermissions;
+      
+      try {
+        const base = document.getElementById('baseUrl').value;
+        const query = `query {
+  permissions {
+    id
+    code
+    name
+    description
+    module
+  }
+}`;
+        const url = new URL(base.replace(/\/$/, '') + '/api/graphql/');
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ query })
+        });
+        
+        const data = await response.json();
+        if (data.data && data.data.permissions) {
+          allPermissions = data.data.permissions;
+        }
+        return allPermissions;
+      } catch (error) {
+        console.error('Error loading permissions:', error);
+        alert('Error al cargar permisos. Verifica tu conexión.');
+        return [];
+      }
+    }
+
+    // Mostrar sección de permisos
+    async function loadPermissionsForUser(mode) {
+      console.log('Loading permissions for mode:', mode);
+      
+      const permissions = await loadAllPermissions();
+      if (permissions.length === 0) {
+        alert('No se pudieron cargar los permisos');
+        return;
+      }
+
+      const sectionId = mode === 'create' ? 'cuPermissionsSection' : 'uuPermissionsSection';
+      const listId = mode === 'create' ? 'cuPermissionsList' : 'uuPermissionsList';
+      
+      document.getElementById(sectionId).style.display = 'block';
+      
+      // Agrupar permisos por módulo
+      const permissionsByModule = {};
+      permissions.forEach(perm => {
+        if (!permissionsByModule[perm.module]) {
+          permissionsByModule[perm.module] = [];
+        }
+        permissionsByModule[perm.module].push(perm);
+      });
+
+      // Generar HTML
+      let html = '';
+      Object.keys(permissionsByModule).sort().forEach(module => {
+        html += `<div style="margin-bottom: 15px;">
+          <h5 style="color: #22d3ee; margin: 0 0 8px 0; font-size: 14px; text-transform: uppercase;">${module}</h5>`;
+        
+        permissionsByModule[module].forEach(perm => {
+          const isChecked = selectedPermissions[mode].includes(perm.id);
+          html += `<div style="margin: 4px 0;">
+            <label style="display: flex; align-items: center; cursor: pointer; font-size: 13px;">
+              <input type="checkbox" value="${perm.id}" ${isChecked ? 'checked' : ''} 
+                     onchange="togglePermission('${mode}', '${perm.id}')"
+                     style="margin-right: 8px;">
+              <span style="color: #e5e7eb;">${perm.name}</span>
+              <span style="color: #94a3b8; margin-left: 8px; font-size: 11px;">(${perm.code})</span>
+            </label>
+          </div>`;
+        });
+        
+        html += '</div>';
+      });
+
+      document.getElementById(listId).innerHTML = html;
+    }
+
+    // Toggle permiso individual
+    function togglePermission(mode, permissionId) {
+      const index = selectedPermissions[mode].indexOf(permissionId);
+      if (index > -1) {
+        selectedPermissions[mode].splice(index, 1);
+      } else {
+        selectedPermissions[mode].push(permissionId);
+      }
+      console.log(`Permissions for ${mode}:`, selectedPermissions[mode]);
+    }
+
+    // Ocultar sección de permisos
+    function hidePermissions(mode) {
+      const sectionId = mode === 'create' ? 'cuPermissionsSection' : 'uuPermissionsSection';
+      document.getElementById(sectionId).style.display = 'none';
+    }
+
+    // Aplicar permisos seleccionados
+    function applyPermissionsToUser(mode) {
+      const count = selectedPermissions[mode].length;
+      if (count === 0) {
+        alert('No has seleccionado ningún permiso personalizado.');
+        return;
+      }
+
+      const action = mode === 'create' ? 'crear el usuario' : 'editar el usuario';
+      alert(`✅ ${count} permisos personalizados seleccionados para ${action}.\\n\\nAhora presiona "Abrir en GraphQL" para aplicar los cambios.`);
+      
+      // Mostrar permisos seleccionados en consola
+      console.log(`Selected permissions for ${mode}:`, selectedPermissions[mode]);
+      
+      hidePermissions(mode);
+    }
+
+    // Asignar eventos a los botones de permisos
+    document.addEventListener('DOMContentLoaded', function() {
+      const btnLoadCreate = document.getElementById('btnLoadPermissionsCreate');
+      const btnLoadEdit = document.getElementById('btnLoadPermissionsEdit');
+      
+      if (btnLoadCreate) {
+        btnLoadCreate.addEventListener('click', function() {
+          console.log('Loading permissions for create mode');
+          loadPermissionsForUser('create');
+        });
+      }
+      
+      if (btnLoadEdit) {
+        btnLoadEdit.addEventListener('click', function() {
+          console.log('Loading permissions for edit mode');
+          loadPermissionsForUser('edit');
+        });
+      }
+    });
+
   </script>
 </body>
 </html>

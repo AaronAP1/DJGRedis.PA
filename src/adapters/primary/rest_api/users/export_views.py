@@ -67,17 +67,18 @@ class ExportUsersXLSXView(APIView):
     @extend_schema(
         operation_id='users_export_xlsx',
         tags=['Users Export'],
-        summary='Exportar usuarios a Excel',
+        summary='Exportar TODOS los usuarios del sistema a Excel',
+        description='Exporta todos los usuarios del sistema (todos los roles) a un archivo Excel. Incluye hojas separadas por rol. Admite filtros opcionales para refinar la exportación.',
         parameters=[
-            OpenApiParameter(name='role', location=OpenApiParameter.QUERY, required=False, type=str),
-            OpenApiParameter(name='is_active', location=OpenApiParameter.QUERY, required=False, type=bool),
-            OpenApiParameter(name='email', location=OpenApiParameter.QUERY, required=False, type=str),
-            OpenApiParameter(name='first_name', location=OpenApiParameter.QUERY, required=False, type=str),
-            OpenApiParameter(name='last_name', location=OpenApiParameter.QUERY, required=False, type=str),
-            OpenApiParameter(name='date_joined_from', location=OpenApiParameter.QUERY, required=False, type=str, description='YYYY-MM-DD'),
-            OpenApiParameter(name='date_joined_to', location=OpenApiParameter.QUERY, required=False, type=str, description='YYYY-MM-DD'),
+            OpenApiParameter(name='role', location=OpenApiParameter.QUERY, required=False, type=str, description='Filtrar por rol específico'),
+            OpenApiParameter(name='is_active', location=OpenApiParameter.QUERY, required=False, type=bool, description='Filtrar por estado activo/inactivo'),
+            OpenApiParameter(name='email', location=OpenApiParameter.QUERY, required=False, type=str, description='Filtrar por email (contiene)'),
+            OpenApiParameter(name='first_name', location=OpenApiParameter.QUERY, required=False, type=str, description='Filtrar por nombre (contiene)'),
+            OpenApiParameter(name='last_name', location=OpenApiParameter.QUERY, required=False, type=str, description='Filtrar por apellido (contiene)'),
+            OpenApiParameter(name='date_joined_from', location=OpenApiParameter.QUERY, required=False, type=str, description='Fecha desde (YYYY-MM-DD)'),
+            OpenApiParameter(name='date_joined_to', location=OpenApiParameter.QUERY, required=False, type=str, description='Fecha hasta (YYYY-MM-DD)'),
         ],
-        responses={200: OpenApiResponse(description='XLSX export')},
+        responses={200: OpenApiResponse(description='XLSX file with all users by role')},
     )
     def get(self, request):
         qs = _apply_filters(request, User.objects.all())

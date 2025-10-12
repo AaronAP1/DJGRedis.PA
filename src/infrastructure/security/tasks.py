@@ -21,6 +21,7 @@ def send_email_html(subject: str, template_path: str, context: dict, to_email: s
 
 @shared_task
 def send_welcome_email(user_id: str) -> bool:
+    """Envía email de bienvenida sin credenciales."""
     # Si el envío de correos está deshabilitado, no ejecutar
     if not getattr(settings, 'EMAIL_ENABLED', False):
         return False
@@ -28,7 +29,18 @@ def send_welcome_email(user_id: str) -> bool:
         from src.adapters.secondary.database.models import User
 
         user = User.objects.get(id=user_id)
-        ctx = {"user": user}
-        return send_email_html("Cuenta creada exitosamente", "emails/user_welcome.html", ctx, user.email)
+
+        # Contexto del email (sin credenciales)
+        ctx = {
+            "user": user, 
+            "frontend_url": getattr(settings, 'FRONTEND_URL', '')
+        }
+        
+        return send_email_html(
+            "Bienvenido al Sistema de Prácticas", 
+            "emails/user_welcome.html", 
+            ctx, 
+            user.email
+        )
     except Exception:
         return False

@@ -1,6 +1,5 @@
 from django.urls import path
 from django.http import JsonResponse
-from .views import LogoutView
 
 
 def placeholder(request):
@@ -9,5 +8,4 @@ def placeholder(request):
 
 urlpatterns = [
     path('', placeholder, name='auth-root'),
-    path('logout/', LogoutView.as_view(), name='auth-logout'),
 ]

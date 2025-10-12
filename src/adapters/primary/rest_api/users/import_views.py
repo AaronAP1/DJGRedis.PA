@@ -16,7 +16,6 @@ from openpyxl import Workbook, load_workbook
 from src.adapters.secondary.database.models import User, Student
 from src.infrastructure.security.permissions import IsAdminOnly
 from .serializers import (
-    ImportPreviewResponseSerializer,
     ImportPreviewRowSerializer,
     ImportConfirmResponseSerializer,
 )
@@ -42,8 +41,9 @@ class ImportTemplateXLSXView(APIView):
     @extend_schema(
         operation_id='users_import_template_xlsx',
         tags=['Users Import'],
-        summary='Descargar plantilla Excel para importación de usuarios',
-        responses={200: OpenApiResponse(description='XLSX template')},
+        summary='Descargar plantilla Excel para importación de usuarios PRACTICANTE',
+        description='Descarga una plantilla Excel con el formato correcto para importar usuarios con rol PRACTICANTE. Incluye código estudiantil y campos requeridos.',
+        responses={200: OpenApiResponse(description='XLSX template for PRACTICANTE users')},
     )
     def get(self, request):
         wb = Workbook()
@@ -130,42 +130,6 @@ def _validate_row(idx: int, row: Dict[str, Any], seen_emails: set) -> Dict[str, 
     }
 
 
-class ImportPreviewView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsAdminOnly]
-
-    @extend_schema(
-        operation_id='users_import_preview',
-        tags=['Users Import'],
-        summary='Previsualizar importación de usuarios',
-        request={'multipart/form-data': {'type': 'object', 'properties': {'file': {'type': 'string', 'format': 'binary'}}}},
-        responses={200: ImportPreviewResponseSerializer},
-    )
-    def post(self, request):
-        upload = request.FILES.get('file')
-        if not upload:
-            return Response({'detail': 'Falta archivo (file)'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            rows = _read_rows_from_file(upload)
-        except Exception as e:
-            return Response({'detail': f'Archivo inválido: {e}'}, status=status.HTTP_400_BAD_REQUEST)
-
-        seen = set()
-        preview_rows = []
-        for i, row in enumerate(rows, start=2):  # asumiendo encabezados en fila 1
-            normalized = {k.strip(): ('' if v is None else str(v).strip()) for k, v in row.items()}
-            pr = _validate_row(i, normalized, seen)
-            preview_rows.append(pr)
-
-        valid_count = sum(1 for r in preview_rows if r['status'] == 'valid')
-        invalid_count = len(preview_rows) - valid_count
-        data = {
-            'rows': preview_rows,
-            'valid_count': valid_count,
-            'invalid_count': invalid_count,
-        }
-        return Response(data, status=status.HTTP_200_OK)
-
 
 class ImportConfirmView(APIView):
     # Solo ADMINISTRADOR puede ejecutar la creación real de usuarios
@@ -174,11 +138,11 @@ class ImportConfirmView(APIView):
     @extend_schema(
         operation_id='users_import_confirm',
         tags=['Users Import'],
-        summary='Confirmar importación de usuarios PRACTICANTE (Excel)',
-        description='Crea usuarios PRACTICANTE válidos, username generado por nombres y apellidos. La contraseña se establece como el código de estudiante.',
+        summary='Importar usuarios PRACTICANTE masivamente (Excel)',
+        description='Importa usuarios con rol PRACTICANTE desde archivo Excel. Username generado automáticamente por nombres y apellidos. La contraseña se establece como el código de estudiante. Envía email de bienvenida automáticamente.',
         request={'multipart/form-data': {'type': 'object', 'properties': {
-            'file': {'type': 'string', 'format': 'binary'},
-            'send_email': {'type': 'boolean'}
+            'file': {'type': 'string', 'format': 'binary', 'description': 'Archivo Excel con usuarios PRACTICANTE'},
+            'send_email': {'type': 'boolean', 'description': 'Enviar email de bienvenida (default: true)'}
         }}},
         responses={200: ImportConfirmResponseSerializer},
     )
@@ -234,17 +198,27 @@ class ImportConfirmView(APIView):
                     codigo_estudiante=codigo,
                 )
 
-                if send_email and getattr(settings, 'EMAIL_ENABLED', False):
-                    try:
-                        send_welcome_email.delay(str(user.id))
-                    except Exception:
-                        # fallback si Celery no está corriendo
-                        from django.core.mail import EmailMultiAlternatives
-                        from django.template.loader import render_to_string
-                        html_body = render_to_string('emails/user_welcome.html', {'user': user})
-                        msg = EmailMultiAlternatives('Cuenta creada exitosamente', html_body, settings.DEFAULT_FROM_EMAIL, [email])
-                        msg.attach_alternative(html_body, 'text/html')
-                        msg.send()
+                # Enviar email de bienvenida (COMENTADO - servidor de correo no configurado)
+                # if send_email and getattr(settings, 'EMAIL_ENABLED', False):
+                #     try:
+                #         send_welcome_email.delay(str(user.id))
+                #     except Exception:
+                #         # fallback si Celery no está corriendo
+                #         from django.core.mail import EmailMultiAlternatives
+                #         from django.template.loader import render_to_string
+                #         ctx = {
+                #             'user': user, 
+                #             'frontend_url': getattr(settings, 'FRONTEND_URL', '')
+                #         }
+                #         html_body = render_to_string('emails/user_welcome.html', ctx)
+                #         msg = EmailMultiAlternatives(
+                #             'Bienvenido al Sistema de Prácticas', 
+                #             html_body, 
+                #             settings.DEFAULT_FROM_EMAIL, 
+                #             [email]
+                #         )
+                #         msg.attach_alternative(html_body, 'text/html')
+                #         msg.send()
 
         valid_count = len(valid_rows)
         invalid_count = len(preview_rows) - valid_count
