@@ -429,6 +429,20 @@
     </div>
 
     <div class="grid mt">
+      <div class="card full">
+        <h3>🔍 Verificar Permisos de Usuario Específico</h3>
+        <p class="hint">Consulta los permisos detallados de un usuario específico para debug.</p>
+        <div class="row">
+          <label>ID Usuario (GraphQL Relay ID)</label>
+          <input id="checkUserPermsId" placeholder="VXNlclR5cGU6YWQyMjc4ZWMtNTFkNy00OGJhLWE3OTgtY2VmZThiOGY0Njgz" />
+        </div>
+        <div class="row">
+          <button id="btnCheckUserPerms">🔍 Verificar Permisos</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid mt">
       <div class="card half">
         <h3>➕ Agregar Avatar (ADMIN)</h3>
         <p class="hint">Crea un nuevo avatar para un rol específico.</p>
@@ -552,7 +566,7 @@
     const qStable = `mutation { jwtRefresh { success message } }`;
 
     const qLogout = `mutation { jwtLogout { success message } }`;
-    const qUsers = `query {\n  users {\n    edges {\n      node { \n        id uuid email username role isActive createdAt nombreCompleto nombres apellidos codigoEstudiante photoUrl\n        roleObj { code name permissions { code name module } }\n      }\n    }\n  }\n}`;
+    const qUsers = `query {\n  users {\n    id email username role isActive createdAt nombreCompleto nombres apellidos codigoEstudiante photoUrl\n    roleObj { code name }\n    permisos { id code name module }\n  }\n}`;
 
     // Nuevas operaciones
     const qForgot = `mutation Forgot($email:String!, $cloudflareToken:String!){\n  forgotPassword(email:$email, cloudflareToken:$cloudflareToken){ success message code }\n}`;
@@ -564,9 +578,12 @@
 
     // Roles y Permisos
     const qMyPerms = `query {\n  myPermissionsInfo {\n    role { id code name }\n    rolePermissions { id code name module }\n    customPermissions { id permission { code name } permissionType reason expiresAt }\n    allPermissions\n  }\n}`;
+    
+    // Query específica para verificar permisos de un usuario
+    const qUserPerms = `query UserPermissions($userId: ID!) {\n  user(id: $userId) {\n    id\n    uuid\n    email\n    username\n    role\n    allPermissions\n    permissionsInfo {\n      rolePermissions { id code name }\n      customPermissions { id permission { id code name } permissionType reason grantedAt expiresAt }\n    }\n  }\n}`;
     const qListRoles = `query {\n  roles {\n    id \n    code \n    name \n    description \n    isActive \n    isSystem\n    permissionsCount\n    usersCount\n    permissions { \n      id \n      code \n      name \n      description \n      module \n    }\n  }\n}`;
     
-    const qListPermissions = `query {\n  permissions {\n    id\n    code\n    name\n    description\n    module\n  }\n}`;
+    const qListPermissions = `query {\n  permissions {\n    id\n    code\n    name\n    description\n    module\n    isActive\n  }\n}`;
     const qCreateRole = `mutation CreateRole($input: RoleInput!){\n  createRole(input:$input){ success message role { id code name } }\n}`;
     const qGrantPerm = `mutation GrantPerm($userId:ID!, $permId:ID!, $reason:String){\n  grantUserPermission(userId:$userId, permissionId:$permId, reason:$reason){ success message }\n}`;
     const qRevokePerm = `mutation RevokePerm($userId:ID!, $permId:ID!, $reason:String){\n  revokeUserPermission(userId:$userId, permissionId:$permId, reason:$reason){ success message }\n}`;
@@ -908,6 +925,33 @@
       };
     } else {
       console.error('Botón btnRevokePerm no encontrado');
+    }
+
+    // Botón para verificar permisos de usuario específico
+    const btnCheckUserPerms = $('btnCheckUserPerms');
+    if (btnCheckUserPerms) {
+      btnCheckUserPerms.onclick = () => {
+        console.log('Botón Verificar Permisos clickeado!');
+        const base = $('baseUrl').value;
+        const userId = $('checkUserPermsId').value.trim();
+        
+        if (!base) { alert('Por favor ingresa la Base URL'); return; }
+        if (!userId) { alert('Ingresa el ID del usuario'); return; }
+        
+        const variables = { userId };
+        console.log('Variables:', variables);
+        
+        try {
+          const graphqlUrl = qsUrl(base, qUserPerms, variables, 'UserPermissions');
+          console.log('URL GraphQL:', graphqlUrl);
+          openNamed('GraphiQL-UserPermissions', graphqlUrl);
+        } catch (error) {
+          console.error('Error:', error);
+          alert('Error al generar la URL de GraphQL');
+        }
+      };
+    } else {
+      console.error('Botón btnCheckUserPerms no encontrado');
     }
 
     // Gestión de Permisos de Roles (Global)

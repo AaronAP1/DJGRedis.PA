@@ -6,6 +6,7 @@ import graphene
 from graphql_jwt.decorators import login_required
 from django.contrib.auth import get_user_model
 from graphene import relay
+from graphql_relay import from_global_id
 from src.adapters.primary.graphql_api.types import (
     PermissionType, RoleType, UserPermissionType, PermissionInput, RoleInput,
     UserType
@@ -19,207 +20,39 @@ from datetime import timedelta
 User = get_user_model()
 
 
+# Utilidad: normaliza un ID aceptando tanto Global ID (Relay) como UUID crudo
+def _resolve_real_id(raw_id: str) -> str:
+    """Devuelve el UUID real desde un Global ID o el propio valor si ya es UUID.
+    Limpia espacios y comillas tipográficas que a veces llegan desde el navegador.
+    """
+    try:
+        s = str(raw_id or '').strip()
+    except Exception:
+        s = ''
+    if not s:
+        return ''
+    
+    # Eliminar comillas tipográficas u otros delimitadores extraños
+    for ch in ('\u201c', '\u201d', '\u00ab', '\u00bb', '"', '"', '«', '»'):
+        s = s.replace(ch, '')
+    s = s.strip()
+    
+    if not s:
+        return ''
+    
+    # Intentar decodificar como Global ID (Relay)
+    try:
+        _type, decoded = from_global_id(s)
+        if decoded:
+            return decoded
+    except Exception:
+        pass
+    
+    return s
+
+
 # ===== MUTATIONS DE PERMISOS DE USUARIO =====
-
-class GrantUserPermission(graphene.Mutation):
-    """Otorga un permiso adicional a un usuario (override)."""
-    
-    class Arguments:
-        user_id = graphene.ID(required=True)
-        permission_id = graphene.ID(required=True)
-        reason = graphene.String()
-    
-    success = graphene.Boolean()
-    message = graphene.String()
-    user_permission = graphene.Field(UserPermissionType)
-    
-    @staticmethod
-    @login_required
-    def mutate(root, info, user_id, permission_id, reason=None):
-        user = info.context.user
-        
-        # Solo administradores pueden otorgar permisos
-        if user.role != 'ADMINISTRADOR':
-            return GrantUserPermission(
-                success=False,
-                message="No tienes permisos para otorgar permisos a usuarios",
-                user_permission=None
-            )
-        
-        try:
-            # Decodificar el ID si es un ID de GraphQL Relay
-            actual_user_id = user_id
-            if user_id.startswith('VXNlclR5cGU6') or not '-' in user_id:
-                # Es un ID codificado de GraphQL Relay, decodificarlo
-                from graphql_relay import from_global_id
-                try:
-                    node_type, actual_user_id = from_global_id(user_id)
-                    if node_type != 'UserType':
-                        return GrantUserPermission(
-                            success=False,
-                            message=f"ID de usuario inválido: tipo {node_type} no es UserType",
-                            user_permission=None
-                        )
-                except Exception:
-                    # Si falla la decodificación, usar el ID original
-                    actual_user_id = user_id
-            
-            # Buscar el usuario objetivo
-            target_user = User.objects.get(pk=actual_user_id)
-            
-            # Buscar el permiso
-            permission = Permission.objects.get(pk=permission_id)
-            
-            # Verificar si el usuario ya tiene este permiso personalizado
-            existing_permission = UserPermission.objects.filter(
-                user=target_user,
-                permission=permission
-            ).first()
-            
-            if existing_permission:
-                return GrantUserPermission(
-                    success=False,
-                    message=f"El usuario {target_user.username} ya tiene el permiso {permission.name}",
-                    user_permission=existing_permission
-                )
-            
-            # Crear el permiso personalizado
-            user_permission = UserPermission.objects.create(
-                user=target_user,
-                permission=permission,
-                permission_type='GRANTED',
-                reason=reason or f"Otorgado por {user.username}",
-                expires_at=timezone.now() + timedelta(days=365)  # 1 año por defecto
-            )
-            
-            return GrantUserPermission(
-                success=True,
-                message=f"Permiso {permission.name} otorgado a {target_user.username} exitosamente",
-                user_permission=user_permission
-            )
-            
-        except User.DoesNotExist:
-            return GrantUserPermission(
-                success=False,
-                message=f"Usuario con ID {user_id} no encontrado",
-                user_permission=None
-            )
-        except Permission.DoesNotExist:
-            return GrantUserPermission(
-                success=False,
-                message=f"Permiso con ID {permission_id} no encontrado",
-                user_permission=None
-            )
-        except Exception as e:
-            return GrantUserPermission(
-                success=False,
-                message=f"Error al otorgar permiso: {str(e)}",
-                user_permission=None
-            )
-
-
-class RevokeUserPermission(graphene.Mutation):
-    """Revoca un permiso personalizado de un usuario."""
-    
-    class Arguments:
-        user_id = graphene.ID(required=True)
-        permission_id = graphene.ID(required=True)
-        reason = graphene.String()
-    
-    success = graphene.Boolean()
-    message = graphene.String()
-    user_permission = graphene.Field(UserPermissionType)
-    
-    @staticmethod
-    @login_required
-    def mutate(root, info, user_id, permission_id, reason=None):
-        user = info.context.user
-        
-        # Solo administradores pueden revocar permisos
-        if user.role != 'ADMINISTRADOR':
-            return RevokeUserPermission(
-                success=False,
-                message="No tienes permisos para revocar permisos de usuarios",
-                user_permission=None
-            )
-        
-        try:
-            # Decodificar el ID si es un ID de GraphQL Relay
-            actual_user_id = user_id
-            if user_id.startswith('VXNlclR5cGU6') or not '-' in user_id:
-                # Es un ID codificado de GraphQL Relay, decodificarlo
-                from graphql_relay import from_global_id
-                try:
-                    node_type, actual_user_id = from_global_id(user_id)
-                    if node_type != 'UserType':
-                        return RevokeUserPermission(
-                            success=False,
-                            message=f"ID de usuario inválido: tipo {node_type} no es UserType",
-                            user_permission=None
-                        )
-                except Exception:
-                    # Si falla la decodificación, usar el ID original
-                    actual_user_id = user_id
-            
-            # Buscar el usuario objetivo
-            target_user = User.objects.get(pk=actual_user_id)
-            
-            # Buscar el permiso
-            permission = Permission.objects.get(pk=permission_id)
-            
-            # Buscar el permiso personalizado del usuario
-            user_permission = UserPermission.objects.filter(
-                user=target_user,
-                permission=permission
-            ).first()
-            
-            if not user_permission:
-                return RevokeUserPermission(
-                    success=False,
-                    message=f"El usuario {target_user.username} no tiene el permiso personalizado {permission.name}",
-                    user_permission=None
-                )
-            
-            # Si es GRANTED, lo cambiamos a REVOKED
-            # Si es REVOKED, lo eliminamos
-            if user_permission.permission_type == 'GRANTED':
-                user_permission.permission_type = 'REVOKED'
-                user_permission.reason = reason or f"Revocado por {user.username}"
-                user_permission.save()
-                
-                return RevokeUserPermission(
-                    success=True,
-                    message=f"Permiso {permission.name} revocado a {target_user.username} exitosamente",
-                    user_permission=user_permission
-                )
-            else:
-                # Ya está revocado, lo eliminamos
-                user_permission.delete()
-                
-                return RevokeUserPermission(
-                    success=True,
-                    message=f"Permiso {permission.name} eliminado completamente de {target_user.username}",
-                    user_permission=None
-                )
-            
-        except User.DoesNotExist:
-            return RevokeUserPermission(
-                success=False,
-                message=f"Usuario con ID {user_id} no encontrado",
-                user_permission=None
-            )
-        except Permission.DoesNotExist:
-            return RevokeUserPermission(
-                success=False,
-                message=f"Permiso con ID {permission_id} no encontrado",
-                user_permission=None
-            )
-        except Exception as e:
-            return RevokeUserPermission(
-                success=False,
-                message=f"Error al revocar permiso: {str(e)}",
-                user_permission=None
-            )
+# (Las mutaciones GrantUserPermission y RevokeUserPermission se definen más abajo)
 
 
 # ===== MUTATIONS DE PERMISOS =====
@@ -290,8 +123,11 @@ class UpdatePermission(graphene.Mutation):
                 message='Solo administradores pueden actualizar permisos'
             )
         
+        # Decodificar ID de GraphQL Relay a UUID real
+        real_id = _resolve_real_id(id)
+        
         try:
-            permission = Permission.objects.get(pk=id)
+            permission = Permission.objects.get(pk=real_id)
         except Permission.DoesNotExist:
             return UpdatePermission(
                 success=False,
@@ -350,7 +186,8 @@ class CreateRole(graphene.Mutation):
         if input.get('permission_ids'):
             for perm_id in input.permission_ids:
                 try:
-                    perm = Permission.objects.get(pk=perm_id)
+                    real_perm_id = _resolve_real_id(perm_id)
+                    perm = Permission.objects.get(pk=real_perm_id)
                     RolePermission.objects.create(
                         role=role,
                         permission=perm,
@@ -388,8 +225,11 @@ class UpdateRole(graphene.Mutation):
                 message='Solo administradores pueden actualizar roles'
             )
         
+        # Decodificar ID de GraphQL Relay a UUID real
+        real_id = _resolve_real_id(id)
+        
         try:
-            role = Role.objects.get(pk=id)
+            role = Role.objects.get(pk=real_id)
         except Role.DoesNotExist:
             return UpdateRole(
                 success=False,
@@ -415,7 +255,8 @@ class UpdateRole(graphene.Mutation):
             # Agregar nuevos permisos
             for perm_id in input.permission_ids:
                 try:
-                    perm = Permission.objects.get(pk=perm_id)
+                    real_perm_id = _resolve_real_id(perm_id)
+                    perm = Permission.objects.get(pk=real_perm_id)
                     RolePermission.objects.create(
                         role=role,
                         permission=perm,
@@ -453,9 +294,13 @@ class AssignRoleToUser(graphene.Mutation):
                 message='Solo administradores pueden asignar roles'
             )
         
+        # Decodificar IDs de GraphQL Relay a UUIDs reales
+        real_user_id = _resolve_real_id(user_id)
+        real_role_id = _resolve_real_id(role_id)
+        
         try:
-            target_user = User.objects.get(pk=user_id)
-            role = Role.objects.get(pk=role_id)
+            target_user = User.objects.get(pk=real_user_id)
+            role = Role.objects.get(pk=real_role_id)
         except (User.DoesNotExist, Role.DoesNotExist):
             return AssignRoleToUser(
                 success=False,
@@ -601,8 +446,11 @@ class RemoveUserPermission(graphene.Mutation):
                 message='Solo administradores pueden eliminar permisos personalizados'
             )
         
+        # Decodificar ID de GraphQL Relay a UUID real
+        real_user_permission_id = _resolve_real_id(user_permission_id)
+        
         try:
-            user_perm = UserPermission.objects.get(pk=user_permission_id)
+            user_perm = UserPermission.objects.get(pk=real_user_permission_id)
             user_perm.delete()
         except UserPermission.DoesNotExist:
             return RemoveUserPermission(

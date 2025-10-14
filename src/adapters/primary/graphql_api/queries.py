@@ -3,7 +3,6 @@ Queries GraphQL para el sistema de gestión de prácticas profesionales.
 """
 
 import graphene
-from graphene_django.filter import DjangoFilterConnectionField
 from graphql_jwt.decorators import login_required, permission_required
 from django.contrib.auth import get_user_model
 
@@ -24,38 +23,38 @@ class Query(graphene.ObjectType):
     """Queries principales del sistema."""
     
     # ===== USUARIOS =====
-    users = DjangoFilterConnectionField(UserType)
+    users = graphene.List(UserType)
     user = graphene.Field(UserType, id=graphene.ID(required=True))
     me = graphene.Field(UserType)
     
     # ===== ESTUDIANTES =====
-    students = DjangoFilterConnectionField(StudentType)
+    students = graphene.List(StudentType)
     student = graphene.Field(StudentType, id=graphene.ID(required=True))
     eligible_students = graphene.List(StudentType)
     
     # ===== EMPRESAS =====
-    companies = DjangoFilterConnectionField(CompanyType)
+    companies = graphene.List(CompanyType)
     company = graphene.Field(CompanyType, id=graphene.ID(required=True))
     active_companies = graphene.List(CompanyType)
     
     # ===== SUPERVISORES =====
-    supervisors = DjangoFilterConnectionField(SupervisorType)
+    supervisors = graphene.List(SupervisorType)
     supervisor = graphene.Field(SupervisorType, id=graphene.ID(required=True))
     company_supervisors = graphene.List(SupervisorType, company_id=graphene.ID(required=True))
     
     # ===== PRÁCTICAS =====
-    practices = DjangoFilterConnectionField(PracticeType)
+    practices = graphene.List(PracticeType)
     practice = graphene.Field(PracticeType, id=graphene.ID(required=True))
     my_practices = graphene.List(PracticeType)
     practices_by_status = graphene.List(PracticeType, status=graphene.String(required=True))
     
     # ===== DOCUMENTOS =====
-    documents = DjangoFilterConnectionField(DocumentType)
+    documents = graphene.List(DocumentType)
     document = graphene.Field(DocumentType, id=graphene.ID(required=True))
     practice_documents = graphene.List(DocumentType, practice_id=graphene.ID(required=True))
     
     # ===== NOTIFICACIONES =====
-    notifications = DjangoFilterConnectionField(NotificationType)
+    notifications = graphene.List(NotificationType)
     my_notifications = graphene.List(NotificationType)
     unread_notifications = graphene.List(NotificationType)
     

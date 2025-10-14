@@ -146,8 +146,20 @@ class User(AbstractBaseUser, PermissionsMixin):
         permissions = set()
         
         # 1. Permisos del rol (si tiene)
+        # Primero intentar con role_obj (ForeignKey), luego con role (legacy)
+        role_obj = None
         if self.role_obj:
-            permissions.update(self.role_obj.get_permissions_codes())
+            role_obj = self.role_obj
+        elif self.role:
+            try:
+                from src.adapters.secondary.database.models import Role
+                role_obj = Role.objects.get(code=self.role, is_active=True)
+            except Role.DoesNotExist:
+                pass
+        
+        if role_obj:
+            role_perms = role_obj.get_permissions_codes()
+            permissions.update(role_perms)
         
         # 2. Permisos personalizados
         custom_perms = self.custom_permissions.select_related('permission').filter(
