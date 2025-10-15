@@ -90,7 +90,7 @@ class Student(Entity):
         return (self.semestre_actual is not None and 
                 self.semestre_actual >= 6 and
                 self.promedio_ponderado is not None and 
-                self.promedio_ponderado >= 12.0)
+                self.promedio_ponderado >= 13.0)
 
     def actualizar_datos_academicos(self, semestre: int, promedio: float):
         """Actualiza los datos académicos del estudiante."""
