@@ -412,3 +412,243 @@ SPECTACULAR_SETTINGS = {
     },
 }
 
+# Eliminar contenido markdown no válido
+
+- ✅ **5 Roles de Usuario**: Practicante, Supervisor, Coordinador, Secretaria, Administrador
+- ✅ **Gestión Completa de Prácticas**: Solicitud, seguimiento, evaluación y certificación
+- ✅ **Dashboards Personalizados**: Por cada rol con métricas en tiempo real
+- ✅ **Reportes Avanzados**: Exportación en JSON, Excel y CSV
+- ✅ **Sistema de Documentos**: Carga, validación y aprobación
+- ✅ **Notificaciones**: Alertas automáticas por email
+- ✅ **Seguridad Robusta**: JWT, permisos basados en roles, rate limiting
+- ✅ **Gráficos y Estadísticas**: Chart.js compatible
+
+## 🌐 APIs Disponibles
+
+### REST API v1 (Legacy)
+- Endpoints básicos de autenticación, usuarios, prácticas y empresas
+- Base URL: `/api/v1/`
+
+### REST API v2 (ViewSets Completos)
+- **ViewSets principales** (65+ endpoints)
+- **Dashboards especializados** (6 endpoints por rol)
+- **Reportes con exportación** (5 endpoints con filtros)
+- Base URL: `/api/v2/`
+
+### GraphQL API
+- **Queries avanzadas** (50+ queries con paginación Relay)
+- **Mutations CRUD** (30+ mutations con validaciones)
+- Base URL: `/graphql/`
+
+## 🔐 Autenticación
+
+Este API utiliza **JWT (JSON Web Tokens)** para autenticación:
+
+1. **Obtener Token**: `POST /api/v1/auth/login/`
+2. **Usar Token**: Incluir header `Authorization: Bearer {token}`
+3. **Refresh Token**: `POST /api/v1/auth/refresh/`
+
+## 👥 Roles y Permisos
+
+| Rol | Descripción | Permisos |
+|-----|-------------|----------|
+| **PRACTICANTE** | Estudiante | Ver prácticas propias, cargar documentos, ver progreso |
+| **SUPERVISOR** | Empresa | Evaluar practicantes, registrar horas, aprobar informes |
+| **COORDINADOR** | Académico | Aprobar solicitudes, asignar supervisores, reportes globales |
+| **SECRETARIA** | Administrativa | Validar documentos, registrar empresas y estudiantes |
+| **ADMINISTRADOR** | Sistema | Acceso total, configuración, auditoría |
+
+## 📊 Endpoints Principales
+
+### Dashboards (API v2)
+- `GET /api/v2/dashboards/general/` - Dashboard general (Coordinador/Admin)
+- `GET /api/v2/dashboards/student/` - Dashboard estudiante
+- `GET /api/v2/dashboards/supervisor/` - Dashboard supervisor
+- `GET /api/v2/dashboards/secretary/` - Dashboard secretaria
+- `GET /api/v2/dashboards/statistics/` - Estadísticas avanzadas
+- `GET /api/v2/dashboards/charts/` - Datos para gráficos
+
+### Reportes (API v2)
+- `GET /api/v2/reports/practices/` - Reporte de prácticas (Excel, CSV)
+- `GET /api/v2/reports/students/` - Reporte de estudiantes
+- `GET /api/v2/reports/companies/` - Reporte de empresas
+- `GET /api/v2/reports/statistics_summary/` - Resumen estadístico
+- `GET /api/v2/reports/{id}/certificate/` - Certificado de práctica
+
+## 🛠️ Stack Tecnológico
+
+- **Backend**: Python 3.10+, Django 5.0+, DRF 3.15+
+- **Bases de Datos**: PostgreSQL, Redis, MongoDB
+- **API**: REST (DRF) + GraphQL (Graphene)
+- **Autenticación**: JWT
+- **Documentación**: OpenAPI 3.0 (Swagger/ReDoc)
+- **Testing**: pytest (88% cobertura)
+
+## 📚 Documentación Completa
+
+- **Guía de Usuario**: `/docs/GUIA_USUARIO.md`
+- **Guía de Desarrollo**: `/docs/GUIA_DESARROLLO.md`
+- **Guía de Testing**: `/docs/GUIA_TESTING.md`
+- **Deployment Guide**: `/docs/DEPLOYMENT_GUIDE.md`
+- **API Dashboards**: `/src/adapters/primary/rest_api/views/README_DASHBOARDS.md`
+- **GraphQL API**: `/docs/README_GraphQL.md`
+
+## 📞 Soporte
+
+- **Email**: soporte.practicas@upeu.edu.pe
+- **GitHub**: https://github.com/AaronAP1/DJGRedis.PA
+- **Universidad**: Universidad Peruana Unión
+
+## 📄 Licencia
+
+Proyecto de Tesis - Ingeniería de Sistemas - UPeU
+
+---
+
+**Version 2.0** - Octubre 2024  
+**Status**: ✅ Production Ready  
+**Arquitectura**: Hexagonal (Clean Architecture)
+    ''',
+    'VERSION': '2.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'CONTACT': {
+        'name': 'Universidad Peruana Unión - Soporte Técnico',
+        'email': 'soporte.practicas@upeu.edu.pe',
+        'url': 'https://github.com/AaronAP1/DJGRedis.PA',
+    },
+    'LICENSE': {
+        'name': 'Proyecto de Tesis - Universidad Peruana Unión',
+        'url': 'https://upeu.edu.pe',
+    },
+    'EXTERNAL_DOCS': {
+        'description': 'Documentación Completa del Proyecto',
+        'url': 'https://github.com/AaronAP1/DJGRedis.PA/tree/master/docs',
+    },
+    'TAGS': [
+        {
+            'name': 'Autenticación',
+            'description': 'Endpoints de login, logout, refresh token y gestión de sesiones. Utiliza JWT para autenticación stateless.',
+        },
+        {
+            'name': 'Usuarios',
+            'description': 'Gestión de usuarios del sistema. CRUD completo con permisos basados en roles (PRACTICANTE, SUPERVISOR, COORDINADOR, SECRETARIA, ADMINISTRADOR).',
+        },
+        {
+            'name': 'Estudiantes',
+            'description': 'Gestión de estudiantes/practicantes. Incluye registro, actualización de datos académicos, consulta de prácticas y progreso.',
+        },
+        {
+            'name': 'Empresas',
+            'description': 'Gestión de empresas que ofrecen prácticas. Incluye validación de RUC, sectores económicos y convenios.',
+        },
+        {
+            'name': 'Supervisores',
+            'description': 'Gestión de supervisores de empresas. Asignación a prácticas y permisos de evaluación.',
+        },
+        {
+            'name': 'Prácticas',
+            'description': 'Core del sistema. Gestión completa del ciclo de vida de una práctica: solicitud, aprobación, seguimiento, evaluación y certificación.',
+        },
+        {
+            'name': 'Documentos',
+            'description': 'Gestión de documentos requeridos: cartas de presentación, informes mensuales, constancias, etc. Incluye validación y aprobación.',
+        },
+        {
+            'name': 'Notificaciones',
+            'description': 'Sistema de notificaciones por email y en plataforma. Alertas automáticas para eventos importantes.',
+        },
+        {
+            'name': 'Dashboards',
+            'description': 'Dashboards personalizados por rol con métricas en tiempo real, estadísticas y gráficos. Incluye datos para Chart.js.',
+        },
+        {
+            'name': 'Reportes',
+            'description': 'Generación de reportes avanzados con filtros. Exportación en múltiples formatos: JSON, Excel (.xlsx), CSV.',
+        },
+        {
+            'name': 'Importación/Exportación',
+            'description': 'Endpoints para importar usuarios masivamente desde Excel y exportar datos del sistema.',
+        },
+        {
+            'name': 'C4 Models',
+            'description': 'Visualización de arquitectura del sistema con diagramas C4 (Context, Containers, Components, Code).',
+        },
+    ],
+    # Usa servidor relativo para que Swagger ejecute requests contra el mismo host
+    'SERVERS': [
+        {
+            'url': '/',
+            'description': 'Servidor actual (desarrollo/producción)',
+        },
+        {
+            'url': 'http://localhost:8000',
+            'description': 'Servidor local de desarrollo',
+        },
+    ],
+    # Configuración de seguridad JWT
+    'SECURITY': [
+        {
+            'BearerAuth': [],
+        }
+    ],
+    'COMPONENT_SPLIT_REQUEST': True,
+    'COMPONENT_NO_READ_ONLY_REQUIRED': True,
+    # Swagger UI Settings
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+        'displayOperationId': False,
+        'displayRequestDuration': True,
+        'docExpansion': 'none',
+        'filter': True,
+        'showExtensions': True,
+        'showCommonExtensions': True,
+        'defaultModelsExpandDepth': 2,
+        'defaultModelExpandDepth': 2,
+        'tryItOutEnabled': True,
+        'requestSnippetsEnabled': True,
+        'syntaxHighlight': {
+            'activate': True,
+            'theme': 'monokai',
+        },
+    },
+    # ReDoc Settings
+    'REDOC_UI_SETTINGS': {
+        'hideDownloadButton': False,
+        'expandResponses': '200,201',
+        'pathInMiddlePanel': True,
+        'nativeScrollbars': True,
+        'theme': {
+            'colors': {
+                'primary': {
+                    'main': '#1976d2',
+                },
+            },
+            'typography': {
+                'fontSize': '14px',
+                'fontFamily': '"Roboto", sans-serif',
+                'headings': {
+                    'fontFamily': '"Roboto", sans-serif',
+                },
+            },
+        },
+    },
+    # Configuración de esquema
+    'SCHEMA_PATH_PREFIX': r'/api/v[0-9]',
+    'SCHEMA_PATH_PREFIX_TRIM': True,
+    'SERVE_PERMISSIONS': ['rest_framework.permissions.AllowAny'],
+    'SERVE_AUTHENTICATION': [],
+    'PREPROCESSING_HOOKS': [],
+    'POSTPROCESSING_HOOKS': [],
+    # Incluir operaciones de GraphQL en el schema (opcional)
+    'APPEND_COMPONENTS': {
+        'securitySchemes': {
+            'BearerAuth': {
+                'type': 'http',
+                'scheme': 'bearer',
+                'bearerFormat': 'JWT',
+                'description': 'Ingresa tu token JWT en el formato: Bearer {token}',
+            }
+        }
+    },
+}
