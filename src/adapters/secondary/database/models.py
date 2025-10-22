@@ -7,6 +7,13 @@ from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseU
 from django.core.validators import RegexValidator, MinValueValidator, MaxValueValidator
 from uuid import uuid4
 import os
+import secrets
+from datetime import timedelta
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+
+# Importar get_user_model después de definir User para evitar circular import
+User = get_user_model
 
 
 class CustomUserManager(BaseUserManager):
@@ -69,14 +76,21 @@ class User(AbstractBaseUser, PermissionsMixin):
     username = models.CharField('Usuario', max_length=150, unique=True, blank=True, null=True)
     first_name = models.CharField('Nombres', max_length=150)
     last_name = models.CharField('Apellidos', max_length=150)
-    role = models.CharField('Rol', max_length=20, choices=ROLE_CHOICES)
+    
+    # Legacy role field (mantener por compatibilidad)
+    role = models.CharField('Rol (legacy)', max_length=20, choices=ROLE_CHOICES, blank=True, null=True)
+    
+    # Nuevo sistema de roles
+    role_obj = models.ForeignKey('Role', on_delete=models.SET_NULL, null=True, blank=True, 
+                                  related_name='users', verbose_name='Rol del Sistema')
+    
     is_active = models.BooleanField('Activo', default=True)
     is_staff = models.BooleanField('Es staff', default=False)
     date_joined = models.DateTimeField('Fecha de registro', auto_now_add=True)
     last_login = models.DateTimeField('Último acceso', null=True, blank=True)
     created_at = models.DateTimeField('Creado en', auto_now_add=True)
     updated_at = models.DateTimeField('Actualizado en', auto_now=True)
-    photo = models.ImageField('Foto de perfil', upload_to='users/photos/%Y/%m/', blank=True, null=True)
+    avatar = models.ForeignKey('Avatar', on_delete=models.SET_NULL, null=True, blank=True, related_name='users', verbose_name='Avatar')
 
     objects = CustomUserManager()
 
@@ -127,6 +141,89 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def is_administrador(self):
         return self.role == 'ADMINISTRADOR'
+    
+    # ===== MÉTODOS DE PERMISOS =====
+    
+    def get_all_permissions(self):
+        """Obtiene todos los permisos efectivos del usuario (rol + personalizados)."""
+        permissions = set()
+        
+        # 1. Permisos del rol (si tiene)
+        # Primero intentar con role_obj (ForeignKey), luego con role (legacy)
+        role_obj = None
+        if self.role_obj:
+            role_obj = self.role_obj
+        elif self.role:
+            try:
+                from src.adapters.secondary.database.models import Role
+                role_obj = Role.objects.get(code=self.role, is_active=True)
+            except Role.DoesNotExist:
+                pass
+        
+        if role_obj:
+            role_perms = role_obj.get_permissions_codes()
+            permissions.update(role_perms)
+        
+        # 2. Permisos personalizados
+        custom_perms = self.custom_permissions.select_related('permission').filter(
+            permission__is_active=True
+        )
+        
+        for custom in custom_perms:
+            # Verificar si no expiró
+            if custom.expires_at and custom.is_expired():
+                continue
+            
+            if custom.permission_type == 'GRANT':
+                permissions.add(custom.permission.code)
+            elif custom.permission_type == 'REVOKE':
+                permissions.discard(custom.permission.code)
+        
+        return list(permissions)
+    
+    def has_permission(self, permission_code):
+        """Verifica si el usuario tiene un permiso específico."""
+        return permission_code in self.get_all_permissions()
+    
+    def has_any_permission(self, permission_codes):
+        """Verifica si el usuario tiene al menos uno de los permisos."""
+        user_perms = set(self.get_all_permissions())
+        return bool(user_perms.intersection(set(permission_codes)))
+    
+    def has_all_permissions(self, permission_codes):
+        """Verifica si el usuario tiene todos los permisos especificados."""
+        user_perms = set(self.get_all_permissions())
+        return set(permission_codes).issubset(user_perms)
+
+
+class Avatar(models.Model):
+    """Modelo de Avatar para usuarios por rol."""
+    
+    ROLE_CHOICES = [
+        ('PRACTICANTE', 'Practicante'),
+        ('SUPERVISOR', 'Supervisor'),
+        ('COORDINADOR', 'Coordinador'),
+        ('SECRETARIA', 'Secretaria'),
+        ('ADMINISTRADOR', 'Administrador'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    url = models.URLField('URL del Avatar', max_length=500)
+    role = models.CharField('Rol', max_length=20, choices=ROLE_CHOICES)
+    is_active = models.BooleanField('Activo', default=True)
+    created_at = models.DateTimeField('Creado en', auto_now_add=True)
+
+    class Meta:
+        db_table = 'avatars'
+        verbose_name = 'Avatar'
+        verbose_name_plural = 'Avatares'
+        indexes = [
+            models.Index(fields=['role']),
+            models.Index(fields=['is_active']),
+        ]
+
+    def __str__(self):
+        return f"Avatar {self.role} - {self.id}"
 
 
 class Student(models.Model):
@@ -462,3 +559,113 @@ class Notification(models.Model):
     def es_importante(self):
         """Verifica si la notificación es importante."""
         return self.tipo in ['WARNING', 'ERROR']
+
+
+# OpaqueSession y SessionActivity eliminados - Sistema JWT PURO
+# Estos modelos ya no son necesarios porque usamos JWT PURO con blacklist
+
+
+# ===== SISTEMA DE ROLES Y PERMISOS =====
+
+class Permission(models.Model):
+    """Permisos disponibles en el sistema."""
+    
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    code = models.CharField('Código', max_length=100, unique=True, db_index=True)
+    name = models.CharField('Nombre', max_length=200)
+    description = models.TextField('Descripción', blank=True, null=True)
+    module = models.CharField('Módulo', max_length=100, blank=True, null=True)
+    is_active = models.BooleanField('Activo', default=True)
+    created_at = models.DateTimeField('Creado en', auto_now_add=True)
+    
+    class Meta:
+        db_table = 'permissions'
+        verbose_name = 'Permiso'
+        verbose_name_plural = 'Permisos'
+        ordering = ['module', 'code']
+    
+    def __str__(self):
+        return f"{self.code} - {self.name}"
+
+
+class Role(models.Model):
+    """Roles del sistema con permisos asociados."""
+    
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    code = models.CharField('Código', max_length=50, unique=True, db_index=True)
+    name = models.CharField('Nombre', max_length=100)
+    description = models.TextField('Descripción', blank=True, null=True)
+    permissions = models.ManyToManyField(Permission, through='RolePermission', related_name='roles')
+    is_active = models.BooleanField('Activo', default=True)
+    is_system = models.BooleanField('Es del sistema', default=False, help_text='Roles del sistema no se pueden eliminar')
+    created_at = models.DateTimeField('Creado en', auto_now_add=True)
+    updated_at = models.DateTimeField('Actualizado en', auto_now=True)
+    
+    class Meta:
+        db_table = 'roles'
+        verbose_name = 'Rol'
+        verbose_name_plural = 'Roles'
+        ordering = ['name']
+    
+    def __str__(self):
+        return self.name
+    
+    def get_permissions_codes(self):
+        """Obtiene lista de códigos de permisos del rol."""
+        return list(self.permissions.filter(is_active=True).values_list('code', flat=True))
+
+
+class RolePermission(models.Model):
+    """Relación entre Roles y Permisos."""
+    
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name='role_permissions')
+    permission = models.ForeignKey(Permission, on_delete=models.CASCADE, related_name='role_permissions')
+    granted_by = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, blank=True, related_name='granted_role_permissions')
+    granted_at = models.DateTimeField('Otorgado en', auto_now_add=True)
+    
+    class Meta:
+        db_table = 'role_permissions'
+        verbose_name = 'Permiso de Rol'
+        verbose_name_plural = 'Permisos de Roles'
+        unique_together = [['role', 'permission']]
+    
+    def __str__(self):
+        return f"{self.role.name} - {self.permission.code}"
+
+
+class UserPermission(models.Model):
+    """Permisos personalizados por usuario (override de rol)."""
+    
+    PERMISSION_TYPE_CHOICES = [
+        ('GRANT', 'Otorgado'),    # Dar permiso adicional
+        ('REVOKE', 'Revocado'),   # Quitar permiso del rol
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    user = models.ForeignKey('User', on_delete=models.CASCADE, related_name='custom_permissions')
+    permission = models.ForeignKey(Permission, on_delete=models.CASCADE, related_name='user_permissions')
+    permission_type = models.CharField('Tipo', max_length=10, choices=PERMISSION_TYPE_CHOICES)
+    granted_by = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, blank=True, related_name='granted_user_permissions')
+    reason = models.TextField('Razón', blank=True, null=True)
+    granted_at = models.DateTimeField('Otorgado en', auto_now_add=True)
+    expires_at = models.DateTimeField('Expira en', null=True, blank=True)
+    
+    class Meta:
+        db_table = 'user_permissions'
+        verbose_name = 'Permiso de Usuario'
+        verbose_name_plural = 'Permisos de Usuarios'
+        unique_together = [['user', 'permission']]
+        indexes = [
+            models.Index(fields=['user', 'permission_type']),
+            models.Index(fields=['expires_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.permission.code} ({self.permission_type})"
+    
+    def is_expired(self):
+        """Verifica si el permiso personalizado ha expirado."""
+        if not self.expires_at:
+            return False
+        return timezone.now() > self.expires_at

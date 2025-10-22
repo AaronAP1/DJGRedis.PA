@@ -4,12 +4,12 @@ from django.conf import settings
 from datetime import timedelta
 
 class Command(BaseCommand):
-    help = "Cleanup expired/revoked JWT tokens (SimpleJWT and GraphQL JWT)."
+    help = "Limpia tokens JWT expirados del sistema JWT PURO."
 
     def handle(self, *args, **options):
         total_deleted = 0
 
-        # SimpleJWT blacklist cleanup
+        # 1. SimpleJWT blacklist cleanup (sistema JWT PURO)
         try:
             from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
 
@@ -21,37 +21,13 @@ class Command(BaseCommand):
             out_deleted = expired.delete()[0]
             total_deleted += bl_deleted + out_deleted
             self.stdout.write(self.style.SUCCESS(
-                f"SimpleJWT: deleted {bl_deleted} blacklisted and {out_deleted} outstanding expired tokens"
+                f"✅ JWT PURO: eliminados {bl_deleted} blacklisted + {out_deleted} outstanding tokens expirados"
             ))
         except Exception as e:
-            self.stdout.write(self.style.WARNING(f"SimpleJWT cleanup skipped: {e}"))
+            self.stdout.write(self.style.WARNING(f"⚠️  SimpleJWT cleanup omitido: {e}"))
 
-        # graphql_jwt refresh tokens cleanup
-        try:
-            from graphql_jwt.refresh_token.models import RefreshToken
-
-            now = timezone.now()
-
-            # 1) Delete unrevoked but expired tokens (created <= now - REFRESH_EXPIRATION_DELTA)
-            gql_jwt = getattr(settings, 'GRAPHQL_JWT', {})
-            refresh_delta = gql_jwt.get('JWT_REFRESH_EXPIRATION_DELTA') or timedelta(days=7)
-            cutoff_expired = now - refresh_delta
-            qs_expired = RefreshToken.objects.filter(revoked__isnull=True, created__lte=cutoff_expired)
-            deleted_expired = qs_expired.delete()[0]
-            total_deleted += deleted_expired
-            self.stdout.write(self.style.SUCCESS(
-                f"GraphQL JWT: deleted {deleted_expired} expired (unrevoked) refresh tokens"
-            ))
-
-            # 2) Delete revoked tokens older than 30 days (audit retention)
-            cutoff_revoked = now - timezone.timedelta(days=30)
-            qs_revoked = RefreshToken.objects.filter(revoked__isnull=False, created__lte=cutoff_revoked)
-            deleted_revoked = qs_revoked.delete()[0]
-            total_deleted += deleted_revoked
-            self.stdout.write(self.style.SUCCESS(
-                f"GraphQL JWT: deleted {deleted_revoked} revoked refresh tokens older than 30 days"
-            ))
-        except Exception as e:
-            self.stdout.write(self.style.WARNING(f"GraphQL JWT cleanup skipped: {e}"))
-
-        self.stdout.write(self.style.SUCCESS(f"Done. Total deleted: {total_deleted}"))
+        # 2. JWT Sessions cleanup - Ya no hay sesiones opacas
+        self.stdout.write(
+            self.style.SUCCESS('Sistema JWT PURO - No hay sesiones opacas que limpiar')
+        )
+        self.stdout.write(self.style.SUCCESS(f"\n✨ Limpieza completada. Total eliminado: {total_deleted} registros"))

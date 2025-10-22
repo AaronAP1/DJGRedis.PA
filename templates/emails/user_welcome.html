@@ -42,20 +42,35 @@
       </div>
       <div class="content">
         <p>
-          Ya puedes iniciar sesión en el Sistema de Gestión de Prácticas Profesionales con tu
-          correo institucional y la contraseña asignada.
+          ¡Te damos la bienvenida al Sistema de Gestión de Prácticas Profesionales! 
+          Tu cuenta ha sido creada exitosamente y ya puedes acceder a la plataforma.
         </p>
 
         <div class="card">
-          <strong>Resumen de tu cuenta</strong>
+          <strong>✅ Tu cuenta está lista</strong>
           <ul style="margin:10px 0 0 18px; padding:0;">
-            <li>Correo: <span style="font-family:monospace;">{{ user.email }}</span></li>
-            <li>Nombre: {{ user.first_name }} {{ user.last_name }}</li>
-            <li>Rol: {{ user.role }}</li>
+            <li><strong>Correo:</strong> <span style="font-family:monospace;">{{ user.email }}</span></li>
+            <li><strong>Nombre:</strong> {{ user.first_name }} {{ user.last_name }}</li>
+            <li><strong>Rol asignado:</strong> {{ user.role }}</li>
           </ul>
+          
+          <p style="margin:14px 0 0 0; color:#059669;">
+            🎯 <strong>Próximos pasos:</strong><br>
+            • Inicia sesión con tus credenciales institucionales<br>
+            • Completa tu perfil si es necesario<br>
+            • Explora las funcionalidades disponibles para tu rol
+          </p>
+          
+          {% if frontend_url %}
+          <p style="margin:16px 0 0 0; text-align:center;">
+            <a href="{{ frontend_url }}" class="cta">🚀 Acceder al Sistema</a>
+          </p>
+          {% endif %}
         </div>
 
-        <p style="margin: 18px 0 0 0;">Si no reconoces esta acción, por favor contáctanos.</p>
+        <p style="margin: 18px 0 0 0; font-size:14px; color:#6b7280;">
+          Si tienes alguna pregunta o necesitas ayuda, no dudes en contactar al equipo de soporte.
+        </p>
         <div class="divider"></div>
         <p style="margin:0;">Saludos cordiales,<br/><strong>Equipo de Soporte</strong></p>
       </div>

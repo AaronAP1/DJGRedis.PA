@@ -7,7 +7,8 @@ from graphene_django import DjangoObjectType
 from graphene_django.filter import DjangoFilterConnectionField
 from django_filters import FilterSet, CharFilter, DateFilter, NumberFilter
 from src.adapters.secondary.database.models import (
-    User, Student, Company, Supervisor, Practice, Document, Notification
+    User, Student, Company, Supervisor, Practice, Document, Notification,
+    Permission, Role, RolePermission, UserPermission, Avatar
 )
 
 
@@ -28,13 +29,12 @@ class UserType(DjangoObjectType):
     
     class Meta:
         model = User
-        interfaces = (graphene.relay.Node,)
         filterset_class = UserFilter
         fields = (
             'id', 'email', 'username', 'first_name', 'last_name', 'role', 
-            'is_active', 'last_login', 'created_at', 'updated_at', 'photo'
+            'is_active', 'last_login', 'created_at', 'updated_at', 'avatar'
         )
-
+    
     full_name = graphene.String()
     photo_url = graphene.String()
     # Alias en español para consumo de frontend
@@ -44,21 +44,22 @@ class UserType(DjangoObjectType):
     # Exponer código de estudiante cuando el usuario es PRACTICANTE
     codigo_estudiante = graphene.String()
     
+    # Sistema de permisos
+    role_obj = graphene.Field('src.adapters.primary.graphql_api.types.RoleType')
+    all_permissions = graphene.List(graphene.String)
+    permissions_info = graphene.Field('src.adapters.primary.graphql_api.types.UserPermissionsInfo')
+    role_permissions = graphene.List('src.adapters.primary.graphql_api.types.PermissionType')
+    
+    # Campo simplificado: solo permisos efectivos como objetos
+    permisos = graphene.List('src.adapters.primary.graphql_api.types.PermissionType')
+    
     def resolve_full_name(self, info):
         """Resuelve el nombre completo."""
         return self.get_full_name()
 
     def resolve_photo_url(self, info):
-        request = info.context
-        try:
-            if getattr(self, 'photo', None):
-                url = self.photo.url
-                if url and hasattr(request, 'build_absolute_uri'):
-                    return request.build_absolute_uri(url)
-                return url
-        except Exception:
-            return None
-        return None
+        """Resuelve la URL de la foto de perfil desde el avatar."""
+        return self.avatar.url if self.avatar else None
 
     def resolve_nombre_completo(self, info):
         return self.get_full_name()
@@ -70,15 +71,78 @@ class UserType(DjangoObjectType):
         return self.last_name
 
     def resolve_codigo_estudiante(self, info):
-        """Retorna el código de estudiante si el usuario es PRACTICANTE."""
-        try:
-            if getattr(self, 'role', None) == 'PRACTICANTE':
-                sp = getattr(self, 'student_profile', None)
-                if sp and getattr(sp, 'codigo_estudiante', None):
-                    return sp.codigo_estudiante
-        except Exception:
-            return None
+        """Resuelve el código de estudiante si el usuario es PRACTICANTE."""
+        if self.role == 'PRACTICANTE' and hasattr(self, 'student_profile'):
+            return self.student_profile.codigo_estudiante
         return None
+    
+    def resolve_role_obj(self, info):
+        """Resuelve el objeto Role completo del usuario."""
+        # Primero intentar con role_obj (ForeignKey), luego con role (legacy)
+        if self.role_obj:
+            return self.role_obj
+        elif self.role:
+            from src.adapters.secondary.database.models import Role
+            try:
+                return Role.objects.get(code=self.role, is_active=True)
+            except Role.DoesNotExist:
+                return None
+        return None
+    
+    def resolve_all_permissions(self, info):
+        """Resuelve todos los permisos del usuario."""
+        # Forzar recálculo sin caché
+        return self.get_all_permissions()
+    
+    def resolve_permissions_info(self, info):
+        """Resuelve información detallada de permisos."""
+        from src.adapters.primary.graphql_api.types import UserPermissionsInfo
+        from src.adapters.secondary.database.models import Permission
+        
+        role_perms = []
+        if self.role_obj:
+            role_perms = list(self.role_obj.permissions.filter(is_active=True))
+        
+        custom_perms = list(self.custom_permissions.filter(
+            permission__is_active=True
+        ))
+        
+        # Obtener permisos efectivos (códigos) y convertirlos a objetos Permission
+        effective_codes = self.get_all_permissions()
+        effective_perms = list(Permission.objects.filter(
+            code__in=effective_codes,
+            is_active=True
+        ))
+        
+        return UserPermissionsInfo(
+            role=self.role_obj,
+            role_permissions=role_perms,  # TODOS los permisos del rol
+            effective_permissions=effective_perms,  # Solo permisos EFECTIVOS
+            custom_permissions=custom_perms,
+            all_permissions=effective_codes
+        )
+    
+    def resolve_role_permissions(self, info):
+        """Resuelve los permisos del rol del usuario."""
+        from src.adapters.secondary.database.models import Role, Permission
+        try:
+            role = Role.objects.get(code=self.role, is_active=True)
+            return role.permissions.filter(is_active=True)
+        except Role.DoesNotExist:
+            return Permission.objects.none()
+    
+    def resolve_permisos(self, info):
+        """Resuelve SOLO los permisos efectivos del usuario (campo simplificado)."""
+        from src.adapters.secondary.database.models import Permission
+        
+        # Obtener códigos de permisos efectivos
+        effective_codes = self.get_all_permissions()
+        
+        # Convertir a objetos Permission
+        return Permission.objects.filter(
+            code__in=effective_codes,
+            is_active=True
+        ).order_by('module', 'code')
 
 
 class StudentFilter(FilterSet):
@@ -338,10 +402,10 @@ class UserUpdateInput(graphene.InputObjectType):
 
 
 class ProfileInput(graphene.InputObjectType):
-    """Input para actualizar el perfil del usuario autenticado."""
+    """Input para actualizar el perfil del usuario autenticado (solo nombres y apellidos)."""
     first_name = graphene.String()
     last_name = graphene.String()
-    username = graphene.String()
+    # username y email NO se pueden editar por el usuario
 
 
 class StudentInput(graphene.InputObjectType):
@@ -382,3 +446,94 @@ class PracticeInput(graphene.InputObjectType):
     horas_totales = graphene.Int()
     modalidad = graphene.String()
     area_practica = graphene.String()
+
+
+# ===== TIPOS PARA SISTEMA DE ROLES Y PERMISOS =====
+
+class PermissionType(DjangoObjectType):
+    """Tipo GraphQL para Permisos."""
+    
+    class Meta:
+        model = Permission
+        fields = ('id', 'code', 'name', 'description', 'module', 'is_active', 'created_at')
+
+
+class RoleType(DjangoObjectType):
+    """Tipo GraphQL para Roles."""
+    
+    class Meta:
+        model = Role
+        fields = ('id', 'code', 'name', 'description', 'is_active', 'is_system', 
+                 'created_at', 'updated_at')
+    
+    permissions = graphene.List(PermissionType)
+    permissions_count = graphene.Int()
+    users_count = graphene.Int()
+    
+    def resolve_permissions(self, info):
+        return self.permissions.filter(is_active=True)
+    
+    def resolve_permissions_count(self, info):
+        return self.permissions.filter(is_active=True).count()
+    
+    def resolve_users_count(self, info):
+        return self.users.filter(is_active=True).count()
+
+
+class UserPermissionType(DjangoObjectType):
+    """Tipo GraphQL para Permisos de Usuario."""
+    
+    class Meta:
+        model = UserPermission
+        fields = ('id', 'user', 'permission', 'permission_type', 'reason', 
+                 'granted_by', 'granted_at', 'expires_at')
+    
+    is_expired = graphene.Boolean()
+    def resolve_is_expired(self, info):
+        return self.is_expired
+
+
+class UserPermissionsInfo(graphene.ObjectType):
+    """Información completa de permisos de un usuario."""
+    role = graphene.Field(RoleType)
+    role_permissions = graphene.List(PermissionType)  # TODOS los permisos del rol (sin filtrar)
+    effective_permissions = graphene.List(PermissionType)  # Solo permisos EFECTIVOS (rol - revocados + otorgados)
+    custom_permissions = graphene.List(UserPermissionType)
+    all_permissions = graphene.List(graphene.String)
+
+
+class AvatarType(DjangoObjectType):
+    """Tipo GraphQL para avatares por rol."""
+    
+    class Meta:
+        model = Avatar
+        fields = ('id', 'url', 'role', 'is_active', 'created_at')
+
+
+class EmpresaRucType(graphene.ObjectType):
+    """Tipo GraphQL para información de empresa desde API RUC."""
+    ruc = graphene.String()
+    razon_social = graphene.String()
+    nombre_comercial = graphene.String()
+    direccion = graphene.String()
+    departamento = graphene.String()
+    provincia = graphene.String()
+    distrito = graphene.String()
+    estado = graphene.String()
+    condicion = graphene.String()
+
+
+class PermissionInput(graphene.InputObjectType):
+    """Input para crear/actualizar permisos."""
+    code = graphene.String(required=True)
+    name = graphene.String(required=True)
+    description = graphene.String()
+    module = graphene.String(required=True)
+
+
+class RoleInput(graphene.InputObjectType):
+    """Input para crear/actualizar roles."""
+    code = graphene.String(required=True)
+    name = graphene.String(required=True)
+    description = graphene.String()
+    permission_ids = graphene.List(graphene.ID)
