@@ -21,6 +21,14 @@ from src.adapters.primary.rest_api.viewsets import (
     NotificationViewSet
 )
 
+# Avatar ViewSet
+from src.adapters.primary.rest_api.avatars.viewset import AvatarViewSet
+
+# Security ViewSets (RBAC)
+from src.adapters.primary.rest_api.roles.viewset import RoleViewSet
+from src.adapters.primary.rest_api.permissions.viewset import PermissionViewSet
+from src.adapters.primary.rest_api.user_permissions.viewset import UserPermissionViewSet
+
 # Dashboard y Reports ViewSets (Fase 7)
 from src.adapters.primary.rest_api.views.dashboards import DashboardViewSet
 from src.adapters.primary.rest_api.views.reports import ReportsViewSet
@@ -35,6 +43,10 @@ router = DefaultRouter(trailing_slash=True)
 
 # Registrar ViewSets principales (Fase 3)
 router.register(r'users', UserViewSet, basename='user')
+router.register(r'avatars', AvatarViewSet, basename='avatar')
+router.register(r'roles', RoleViewSet, basename='role')
+router.register(r'permissions', PermissionViewSet, basename='permission')
+router.register(r'user-permissions', UserPermissionViewSet, basename='user-permission')
 router.register(r'students', StudentViewSet, basename='student')
 router.register(r'companies', CompanyViewSet, basename='company')
 router.register(r'supervisors', SupervisorViewSet, basename='supervisor')
@@ -65,6 +77,10 @@ def api_root(request, format=None):
         'institution': 'Universidad Peruana Unión',
         'endpoints': {
             'users': request.build_absolute_uri('users/'),
+            'avatars': request.build_absolute_uri('avatars/'),
+            'roles': request.build_absolute_uri('roles/'),
+            'permissions': request.build_absolute_uri('permissions/'),
+            'user_permissions': request.build_absolute_uri('user-permissions/'),
             'students': request.build_absolute_uri('students/'),
             'companies': request.build_absolute_uri('companies/'),
             'supervisors': request.build_absolute_uri('supervisors/'),

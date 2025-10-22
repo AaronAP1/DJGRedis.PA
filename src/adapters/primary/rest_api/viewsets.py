@@ -22,7 +22,7 @@ ViewSets incluidos:
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from django.contrib.auth import get_user_model
 from django.db.models import Q, Count, Avg
 from django_filters.rest_framework import DjangoFilterBackend
@@ -30,9 +30,11 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from datetime import datetime
 
 from src.adapters.secondary.database.models import (
-    Student, Company, Supervisor, Practice, Document, Notification
+    Student, Company, Supervisor, Practice, Document, Notification, Avatar
 )
 from .serializers import (
+    # Avatar serializers
+    AvatarSerializer,
     # User serializers
     UserListSerializer, UserDetailSerializer, UserCreateSerializer,
     UserUpdateSerializer, ChangePasswordSerializer,
@@ -216,6 +218,184 @@ class UserViewSet(viewsets.ModelViewSet):
             {'message': 'Contraseña actualizada exitosamente'},
             status=status.HTTP_200_OK
         )
+    
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def my_permissions(self, request):
+        """
+        GET /api/users/my-permissions/
+        Retorna los permisos efectivos del usuario actual.
+        
+        Combina:
+        - Permisos del rol del usuario
+        - Permisos específicos otorgados (GRANT)
+        - Permisos revocados (REVOKE)
+        
+        Returns:
+            Response con lista de permisos y su origen.
+        """
+        user = request.user
+        permissions_data = []
+        
+        # Permisos del rol (si tiene role_obj)
+        if hasattr(user, 'role_obj') and user.role_obj:
+            role_permissions = user.role_obj.permissions.filter(is_active=True)
+            for perm in role_permissions:
+                permissions_data.append({
+                    'code': perm.code,
+                    'name': perm.name,
+                    'description': perm.description,
+                    'module': perm.module,
+                    'source': 'role',
+                    'role': user.role_obj.name
+                })
+        
+        # Permisos específicos del usuario (overrides)
+        from src.adapters.secondary.database.models import UserPermission
+        from django.utils import timezone
+        
+        user_permissions = UserPermission.objects.filter(
+            user=user,
+            permission__is_active=True
+        ).filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())
+        ).select_related('permission')
+        
+        for user_perm in user_permissions:
+            permissions_data.append({
+                'code': user_perm.permission.code,
+                'name': user_perm.permission.name,
+                'description': user_perm.permission.description,
+                'module': user_perm.permission.module,
+                'source': 'user_override',
+                'type': user_perm.permission_type,
+                'granted_at': user_perm.granted_at,
+                'expires_at': user_perm.expires_at,
+                'reason': user_perm.reason
+            })
+        
+        return Response({
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'full_name': user.get_full_name(),
+                'role': user.role
+            },
+            'permissions_count': len(permissions_data),
+            'permissions': permissions_data
+        })
+    
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def available_avatars(self, request):
+        """
+        GET /api/users/available-avatars/
+        Retorna los avatares disponibles para el rol del usuario actual.
+        
+        Returns:
+            Response con lista de avatares del rol del usuario.
+        """
+        user_role = request.user.role
+        
+        avatars = Avatar.objects.filter(
+            role=user_role,
+            is_active=True
+        ).order_by('-created_at')
+        
+        serializer = AvatarSerializer(avatars, many=True)
+        
+        return Response({
+            'user_role': user_role,
+            'avatars_count': avatars.count(),
+            'avatars': serializer.data
+        })
+    
+    @action(detail=True, methods=['get'], permission_classes=[IsAdminUser])
+    def effective_permissions(self, request, pk=None):
+        """
+        GET /api/v2/users/{id}/effective-permissions/
+        Retorna los permisos efectivos de un usuario específico (admin only).
+        
+        Combina:
+        - Permisos del rol del usuario
+        - Permisos específicos otorgados (GRANT)
+        - Permisos revocados (REVOKE)
+        
+        Returns:
+            Response con lista de permisos efectivos y su origen.
+        """
+        user = self.get_object()
+        permissions_data = []
+        permissions_codes = set()
+        
+        # Permisos del rol (si tiene role_obj)
+        if hasattr(user, 'role_obj') and user.role_obj:
+            role_permissions = user.role_obj.permissions.filter(is_active=True)
+            for perm in role_permissions:
+                permissions_codes.add(perm.code)
+                permissions_data.append({
+                    'code': perm.code,
+                    'name': perm.name,
+                    'description': perm.description,
+                    'module': perm.module,
+                    'source': 'role',
+                    'role': user.role_obj.name,
+                    'status': 'active'
+                })
+        
+        # Permisos específicos del usuario (overrides)
+        from src.adapters.secondary.database.models import UserPermission
+        from django.utils import timezone
+        
+        user_permissions = UserPermission.objects.filter(
+            user=user,
+            permission__is_active=True
+        ).filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())
+        ).select_related('permission')
+        
+        for user_perm in user_permissions:
+            perm_code = user_perm.permission.code
+            
+            if user_perm.permission_type == 'GRANT':
+                # Agregar permiso adicional
+                if perm_code not in permissions_codes:
+                    permissions_codes.add(perm_code)
+                    permissions_data.append({
+                        'code': perm_code,
+                        'name': user_perm.permission.name,
+                        'description': user_perm.permission.description,
+                        'module': user_perm.permission.module,
+                        'source': 'user_grant',
+                        'granted_at': user_perm.granted_at,
+                        'expires_at': user_perm.expires_at,
+                        'reason': user_perm.reason,
+                        'status': 'granted'
+                    })
+            
+            elif user_perm.permission_type == 'REVOKE':
+                # Marcar como revocado
+                permissions_codes.discard(perm_code)
+                # Buscar y marcar en permissions_data
+                for perm in permissions_data:
+                    if perm['code'] == perm_code:
+                        perm['status'] = 'revoked'
+                        perm['revoked_reason'] = user_perm.reason
+                        break
+        
+        # Filtrar los revocados de la lista final
+        effective_permissions = [p for p in permissions_data if p.get('status') != 'revoked']
+        
+        return Response({
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'full_name': user.get_full_name(),
+                'role': user.role
+            },
+            'effective_permissions_count': len(effective_permissions),
+            'permissions': effective_permissions,
+            'revoked_permissions': [p for p in permissions_data if p.get('status') == 'revoked']
+        })
+
 
 
 # ============================================================================

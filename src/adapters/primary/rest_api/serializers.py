@@ -24,12 +24,179 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from src.adapters.secondary.database.models import (
-    Student, Company, Supervisor, Practice, Document, Notification
+    Student, Company, Supervisor, Practice, Document, Notification, Avatar,
+    Role, Permission, RolePermission, UserPermission
 )
 from datetime import datetime, timedelta
 import os
 
 User = get_user_model()
+
+
+# ============================================================================
+# SERIALIZERS DE SEGURIDAD (RBAC)
+# ============================================================================
+
+class PermissionSerializer(serializers.ModelSerializer):
+    """Serializer para permisos del sistema."""
+    
+    class Meta:
+        model = Permission
+        fields = ['id', 'code', 'name', 'description', 'module', 'is_active', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class PermissionListSerializer(serializers.ModelSerializer):
+    """Serializer resumido para listar permisos."""
+    
+    class Meta:
+        model = Permission
+        fields = ['id', 'code', 'name', 'module', 'is_active']
+
+
+class RolePermissionSerializer(serializers.ModelSerializer):
+    """Serializer para la relación Role-Permission."""
+    
+    permission = PermissionSerializer(read_only=True)
+    permission_id = serializers.UUIDField(write_only=True)
+    granted_by_email = serializers.EmailField(source='granted_by.email', read_only=True)
+    
+    class Meta:
+        model = RolePermission
+        fields = ['id', 'permission', 'permission_id', 'granted_by', 'granted_by_email', 'granted_at']
+        read_only_fields = ['id', 'granted_by', 'granted_at']
+
+
+class RoleSerializer(serializers.ModelSerializer):
+    """Serializer completo para roles con permisos."""
+    
+    permissions = PermissionListSerializer(many=True, read_only=True)
+    permissions_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Role
+        fields = [
+            'id', 'code', 'name', 'description', 
+            'permissions', 'permissions_count',
+            'is_active', 'is_system', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_permissions_count(self, obj):
+        """Retorna cantidad de permisos activos del rol."""
+        return obj.permissions.filter(is_active=True).count()
+
+
+class RoleListSerializer(serializers.ModelSerializer):
+    """Serializer resumido para listar roles."""
+    
+    permissions_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Role
+        fields = ['id', 'code', 'name', 'permissions_count', 'is_active', 'is_system']
+    
+    def get_permissions_count(self, obj):
+        return obj.permissions.filter(is_active=True).count()
+
+
+class RoleCreateSerializer(serializers.ModelSerializer):
+    """Serializer para crear roles."""
+    
+    permission_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        write_only=True,
+        required=False,
+        help_text="Lista de IDs de permisos a asignar al rol"
+    )
+    
+    class Meta:
+        model = Role
+        fields = ['code', 'name', 'description', 'is_active', 'permission_ids']
+    
+    def validate_code(self, value):
+        """Validar que el código sea único y en mayúsculas."""
+        value = value.upper()
+        if Role.objects.filter(code=value).exists():
+            raise serializers.ValidationError('Ya existe un rol con este código')
+        return value
+    
+    def create(self, validated_data):
+        """Crear rol y asignar permisos."""
+        permission_ids = validated_data.pop('permission_ids', [])
+        role = Role.objects.create(**validated_data)
+        
+        # Asignar permisos si se proporcionaron
+        if permission_ids:
+            permissions = Permission.objects.filter(id__in=permission_ids, is_active=True)
+            role.permissions.set(permissions)
+        
+        return role
+
+
+class UserPermissionSerializer(serializers.ModelSerializer):
+    """Serializer para permisos específicos de usuario (overrides)."""
+    
+    permission = PermissionSerializer(read_only=True)
+    permission_id = serializers.UUIDField(write_only=True)
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    granted_by_email = serializers.EmailField(source='granted_by.email', read_only=True)
+    is_expired = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = UserPermission
+        fields = [
+            'id', 'user', 'user_email', 'permission', 'permission_id',
+            'permission_type', 'granted_by', 'granted_by_email',
+            'reason', 'granted_at', 'expires_at', 'is_expired'
+        ]
+        read_only_fields = ['id', 'granted_by', 'granted_at']
+    
+    def get_is_expired(self, obj):
+        """Verifica si el permiso ha expirado."""
+        if obj.expires_at is None:
+            return False
+        from django.utils import timezone
+        return timezone.now() > obj.expires_at
+
+
+class UserPermissionCreateSerializer(serializers.ModelSerializer):
+    """Serializer para crear/otorgar permisos a usuarios."""
+    
+    class Meta:
+        model = UserPermission
+        fields = ['user', 'permission', 'permission_type', 'reason', 'expires_at']
+    
+    def validate(self, attrs):
+        """Validar que no exista ya un permiso igual para el usuario."""
+        user = attrs.get('user')
+        permission = attrs.get('permission')
+        
+        # Verificar si ya existe
+        existing = UserPermission.objects.filter(
+            user=user,
+            permission=permission
+        ).first()
+        
+        if existing:
+            raise serializers.ValidationError(
+                f'El usuario ya tiene un override para el permiso "{permission.code}"'
+            )
+        
+        return attrs
+
+
+# ============================================================================
+# SERIALIZERS DE AVATAR
+# ============================================================================
+
+class AvatarSerializer(serializers.ModelSerializer):
+    """Serializer para mostrar avatares disponibles."""
+    
+    class Meta:
+        model = Avatar
+        fields = ['id', 'url', 'role', 'is_active', 'created_at']
+        read_only_fields = ['id', 'created_at']
 
 
 # ============================================================================
@@ -56,6 +223,8 @@ class UserListSerializer(serializers.ModelSerializer):
 class UserDetailSerializer(serializers.ModelSerializer):
     """Serializer detallado para ver/actualizar usuarios."""
     
+    avatar = AvatarSerializer(read_only=True)
+    avatar_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
     full_name = serializers.SerializerMethodField()
     short_name = serializers.SerializerMethodField()
     is_practicante = serializers.BooleanField(read_only=True)
@@ -70,8 +239,8 @@ class UserDetailSerializer(serializers.ModelSerializer):
             'id', 'email', 'username', 'first_name', 'last_name',
             'full_name', 'short_name', 'role', 'is_active', 'is_staff',
             'date_joined', 'last_login', 'created_at', 'updated_at',
-            'photo', 'is_practicante', 'is_supervisor', 'is_coordinador',
-            'is_secretaria', 'is_administrador'
+            'avatar', 'avatar_id', 'is_practicante', 'is_supervisor', 
+            'is_coordinador', 'is_secretaria', 'is_administrador'
         ]
         read_only_fields = [
             'id', 'date_joined', 'last_login', 'created_at', 'updated_at',
@@ -112,6 +281,8 @@ class UserDetailSerializer(serializers.ModelSerializer):
 class UserCreateSerializer(serializers.ModelSerializer):
     """Serializer para crear nuevos usuarios."""
     
+    avatar = AvatarSerializer(read_only=True)
+    avatar_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
     password = serializers.CharField(
         write_only=True,
         required=True,
@@ -128,7 +299,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'email', 'username', 'first_name', 'last_name',
-            'role', 'password', 'password_confirm', 'photo'
+            'role', 'password', 'password_confirm', 'avatar', 'avatar_id'
         ]
     
     def validate(self, attrs):
@@ -168,10 +339,13 @@ class UserCreateSerializer(serializers.ModelSerializer):
 class UserUpdateSerializer(serializers.ModelSerializer):
     """Serializer para actualizar usuarios (sin cambiar contraseña)."""
     
+    avatar = AvatarSerializer(read_only=True)
+    avatar_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
+    
     class Meta:
         model = User
         fields = [
-            'first_name', 'last_name', 'is_active', 'photo'
+            'first_name', 'last_name', 'is_active', 'avatar', 'avatar_id'
         ]
     
     def validate(self, attrs):
