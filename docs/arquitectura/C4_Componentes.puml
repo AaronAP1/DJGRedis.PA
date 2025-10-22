@@ -1,0 +1,89 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Sistema PPP UPeU - Diagrama de Componentes (C4 Nivel 3)
+
+Container_Boundary(api, "Aplicación Web Django") {
+    Component(auth_controller, "Auth Controller", "Django REST + JWT", "Autenticación y autorización de usuarios")
+    Component(practica_controller, "Práctica Controller", "Django REST", "Gestión de prácticas profesionales")
+    Component(empresa_controller, "Empresa Controller", "Django REST", "Gestión de empresas y supervisores")
+    Component(oportunidad_controller, "Oportunidad Controller", "Django REST + GraphQL", "Gestión de oportunidades laborales")
+    Component(documento_controller, "Documento Controller", "Django REST", "Gestión de documentos y validaciones")
+    Component(cv_controller, "CV Controller", "Django REST", "Gestión de CVs de practicantes")
+    
+    Component(practica_usecase, "Práctica Use Cases", "Python", "Casos de uso para gestión de prácticas")
+    Component(empresa_usecase, "Empresa Use Cases", "Python", "Casos de uso para gestión de empresas")
+    Component(auth_usecase, "Auth Use Cases", "Python", "Casos de uso de autenticación")
+    Component(documento_usecase, "Documento Use Cases", "Python", "Casos de uso para validación de documentos")
+    Component(oportunidad_usecase, "Oportunidad Use Cases", "Python", "Casos de uso para oportunidades laborales")
+    
+    Component(domain_entities, "Domain Entities", "Python", "Entidades del dominio: Usuario, Práctica, Empresa, etc.")
+    Component(value_objects, "Value Objects", "Python", "Objetos de valor: Email, DNI, RUC, etc.")
+    
+    Component(practica_repo, "Práctica Repository", "Django ORM", "Persistencia de prácticas")
+    Component(empresa_repo, "Empresa Repository", "Django ORM", "Persistencia de empresas")
+    Component(usuario_repo, "Usuario Repository", "Django ORM", "Persistencia de usuarios")
+    Component(documento_repo, "Documento Repository", "Django ORM", "Persistencia de documentos")
+    Component(oportunidad_repo, "Oportunidad Repository", "Django ORM", "Persistencia de oportunidades")
+    
+    Component(validation_service, "Validation Service", "Python + External APIs", "Validación DNI, RUC, códigos")
+    Component(file_service, "File Service", "Django + S3", "Gestión de archivos y CVs")
+    Component(notification_service, "Notification Service", "Celery + Email", "Servicios de notificación")
+    Component(logging_service, "Logging Service", "Python Logging", "Auditoría y logs de seguridad")
+}
+
+ContainerDb_Ext(database, "PostgreSQL", "Base de datos principal")
+ContainerDb_Ext(cache, "Redis", "Cache y sesiones")
+ContainerDb_Ext(document_db, "MongoDB", "Documentos y archivos")
+Container_Ext(task_queue, "Celery", "Procesamiento asíncrono")
+System_Ext(s3_storage, "AWS S3", "Almacenamiento de archivos")
+System_Ext(external_apis, "APIs Externas", "SUNAT, RENIEC, SUNEDU")
+
+' Relaciones entre controladores y casos de uso
+Rel(auth_controller, auth_usecase, "Uses")
+Rel(practica_controller, practica_usecase, "Uses")
+Rel(empresa_controller, empresa_usecase, "Uses")
+Rel(oportunidad_controller, oportunidad_usecase, "Uses")
+Rel(documento_controller, documento_usecase, "Uses")
+Rel(cv_controller, oportunidad_usecase, "Uses")
+
+' Relaciones entre casos de uso y entidades de dominio
+Rel(practica_usecase, domain_entities, "Uses")
+Rel(empresa_usecase, domain_entities, "Uses")
+Rel(auth_usecase, domain_entities, "Uses")
+Rel(documento_usecase, domain_entities, "Uses")
+Rel(oportunidad_usecase, domain_entities, "Uses")
+
+Rel(domain_entities, value_objects, "Contains")
+
+' Relaciones entre casos de uso y repositorios
+Rel(practica_usecase, practica_repo, "Uses")
+Rel(empresa_usecase, empresa_repo, "Uses")
+Rel(auth_usecase, usuario_repo, "Uses")
+Rel(documento_usecase, documento_repo, "Uses")
+Rel(oportunidad_usecase, oportunidad_repo, "Uses")
+
+' Relaciones entre casos de uso y servicios
+Rel(practica_usecase, validation_service, "Uses")
+Rel(empresa_usecase, validation_service, "Uses")
+Rel(documento_usecase, file_service, "Uses")
+Rel(oportunidad_usecase, notification_service, "Uses")
+Rel_U(practica_usecase, logging_service, "Uses")
+
+' Relaciones con sistemas externos
+Rel(practica_repo, database, "Reads/Writes", "SQL")
+Rel(empresa_repo, database, "Reads/Writes", "SQL")
+Rel(usuario_repo, database, "Reads/Writes", "SQL")
+Rel(documento_repo, database, "Reads/Writes", "SQL")
+Rel(oportunidad_repo, database, "Reads/Writes", "SQL")
+
+Rel(auth_controller, cache, "Reads/Writes", "Redis Protocol")
+Rel(file_service, s3_storage, "Uploads/Downloads", "HTTPS")
+Rel(file_service, document_db, "Metadata", "MongoDB Protocol")
+Rel(validation_service, external_apis, "Validates", "HTTPS/REST")
+Rel(notification_service, task_queue, "Queues tasks", "Redis Protocol")
+Rel(logging_service, document_db, "Stores logs", "MongoDB Protocol")
+
+@enduml

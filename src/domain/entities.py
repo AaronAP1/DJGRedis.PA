@@ -68,12 +68,12 @@ class User(Entity):
         self.updated_at = datetime.now()
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Student(Entity):
     """Entidad Estudiante (Practicante)."""
-    user: User
-    codigo_estudiante: CodigoEstudiante
-    documento: Documento
+    user: User = field(default=None)
+    codigo_estudiante: CodigoEstudiante = field(default=None)
+    documento: Documento = field(default=None)
     telefono: Optional[Telefono] = None
     direccion: Optional[Direccion] = None
     carrera: Optional[str] = None
@@ -90,7 +90,7 @@ class Student(Entity):
         return (self.semestre_actual is not None and 
                 self.semestre_actual >= 6 and
                 self.promedio_ponderado is not None and 
-                self.promedio_ponderado >= 12.0)
+                self.promedio_ponderado >= 13.0)
 
     def actualizar_datos_academicos(self, semestre: int, promedio: float):
         """Actualiza los datos académicos del estudiante."""
@@ -99,11 +99,11 @@ class Student(Entity):
         self.updated_at = datetime.now()
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Company(Entity):
     """Entidad Empresa."""
-    ruc: RUC
-    razon_social: str
+    ruc: RUC = field(default=None)
+    razon_social: str = ""
     nombre_comercial: Optional[str] = None
     direccion: Optional[Direccion] = None
     telefono: Optional[Telefono] = None
@@ -134,13 +134,13 @@ class Company(Entity):
         return self.nombre_comercial or self.razon_social
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Supervisor(Entity):
     """Entidad Supervisor de empresa."""
-    user: User
-    company: Company
-    documento: Documento
-    cargo: str
+    user: User = field(default=None)
+    company: Company = field(default=None)
+    documento: Documento = field(default=None)
+    cargo: str = ""
     telefono: Optional[Telefono] = None
     años_experiencia: Optional[int] = None
 
@@ -154,11 +154,11 @@ class Supervisor(Entity):
                 self.company.puede_recibir_practicantes())
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Practice(Entity):
     """Entidad Práctica Profesional."""
-    student: Student
-    company: Company
+    student: Student = field(default=None)
+    company: Company = field(default=None)
     supervisor: Optional[Supervisor] = None
     titulo: str = ""
     descripcion: str = ""
@@ -251,16 +251,16 @@ class Practice(Entity):
         return min(100.0, (dias_completados / dias_totales) * 100)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Document(Entity):
     """Entidad Documento."""
-    practice: Practice
-    tipo: DocumentType
-    nombre_archivo: str
-    ruta_archivo: str
-    tamaño_bytes: int
-    mime_type: str
-    subido_por: User
+    practice: Practice = field(default=None)
+    tipo: DocumentType = field(default=None)
+    nombre_archivo: str = ""
+    ruta_archivo: str = ""
+    tamaño_bytes: int = 0
+    mime_type: str = ""
+    subido_por: User = field(default=None)
     aprobado: bool = False
     fecha_aprobacion: Optional[datetime] = None
     aprobado_por: Optional[User] = None
@@ -297,13 +297,13 @@ class Document(Entity):
             return f"{self.tamaño_bytes / (1024 * 1024):.1f} MB"
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Notification(Entity):
     """Entidad Notificación."""
-    user: User
-    titulo: str
-    mensaje: str
-    tipo: str  # INFO, WARNING, ERROR, SUCCESS
+    user: User = field(default=None)
+    titulo: str = ""
+    mensaje: str = ""
+    tipo: str = "INFO"  # INFO, WARNING, ERROR, SUCCESS
     leida: bool = False
     fecha_lectura: Optional[datetime] = None
     accion_url: Optional[str] = None

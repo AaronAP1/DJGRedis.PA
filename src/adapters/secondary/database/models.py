@@ -98,6 +98,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     REQUIRED_FIELDS = ['first_name', 'last_name', 'role']
 
     class Meta:
+        # La migración inicial creó la tabla con nombre 'users'.
+        # Ajustamos el db_table para que el modelo use la misma tabla
+        # y evitar errores de relación inexistente (auth_users).
         db_table = 'users'
         verbose_name = 'Usuario'
         verbose_name_plural = 'Usuarios'

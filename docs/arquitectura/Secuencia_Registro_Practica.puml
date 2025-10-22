@@ -1,0 +1,16 @@
+@startuml
+actor Practicante
+participant "API REST/GraphQL" as API
+participant "UseCase: RegistrarPráctica" as UC
+participant "RepositorioPráctica" as Repo
+participant "DB PostgreSQL" as DB
+
+Practicante -> API : Solicita registro
+API -> UC : Ejecuta caso de uso
+UC -> Repo : Guarda práctica
+Repo -> DB : INSERT práctica
+DB --> Repo : OK
+Repo --> UC : Práctica guardada
+UC --> API : Respuesta exitosa
+API --> Practicante : Confirmación
+@enduml

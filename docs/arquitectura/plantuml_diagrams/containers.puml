@@ -1,0 +1,31 @@
+@startuml
+!define RECTANGLE class
+
+title Sistema de Gestión de Prácticas - Contenedores
+
+actor "Usuarios" as users #1a237e
+
+package "Sistema de Gestión de Prácticas" {
+    rectangle "Aplicación Web\n[Django 5.0, Python]" as webapp #2196f3
+    database "Base de Datos Principal\n[PostgreSQL]" as db #388e3c
+    database "Cache\n[Redis]" as cache #388e3c  
+    database "Base de Datos de Documentos\n[MongoDB]" as docdb #388e3c
+    rectangle "Procesador de Tareas\n[Celery]" as tasks #2196f3
+}
+
+rectangle "Sistema de Email" as email #6c757d
+rectangle "API RENIEC" as reniec #6c757d
+rectangle "API SUNAT" as sunat #6c757d
+
+users --> webapp : Accede vía HTTPS
+webapp --> db : Lee/escribe datos\n[SQL]
+webapp --> cache : Cachea datos\n[Redis Protocol]  
+webapp --> docdb : Almacena documentos\n[MongoDB Protocol]
+webapp --> tasks : Envía tareas\n[Message Queue]
+tasks --> db : Consulta datos\n[SQL]
+
+webapp --> email : Envía emails\n[SMTP]
+webapp --> reniec : Consulta identidad\n[HTTPS]
+webapp --> sunat : Valida empresas\n[HTTPS]
+
+@enduml

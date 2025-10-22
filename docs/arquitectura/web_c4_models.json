@@ -1,0 +1,378 @@
+{
+  "workspace": {
+    "name": "Sistema de Gestión de Prácticas Profesionales",
+    "description": "Arquitectura documentada con modelo C4 usando arquitectura hexagonal",
+    "version": "2.0"
+  },
+  "model": {
+    "people": [
+      {
+        "id": "practicante",
+        "name": "Practicante",
+        "description": "Estudiante que realiza prácticas profesionales",
+        "external": false
+      },
+      {
+        "id": "supervisor",
+        "name": "Supervisor",
+        "description": "Supervisor de empresa que guía al practicante",
+        "external": true
+      },
+      {
+        "id": "coordinador",
+        "name": "Coordinador",
+        "description": "Coordinador académico de prácticas",
+        "external": false
+      },
+      {
+        "id": "secretaria",
+        "name": "Secretaria",
+        "description": "Personal administrativo",
+        "external": false
+      },
+      {
+        "id": "administrador",
+        "name": "Administrador",
+        "description": "Administrador del sistema",
+        "external": false
+      }
+    ],
+    "software_systems": [
+      {
+        "id": "sistema_practicas",
+        "name": "Sistema de Gestión de Prácticas",
+        "description": "Sistema web para gestionar prácticas profesionales con arquitectura hexagonal",
+        "technology": "Django 5.0, Python",
+        "external": false
+      },
+      {
+        "id": "email_system",
+        "name": "Sistema de Email",
+        "description": "Servicio de envío de correos electrónicos",
+        "technology": "SMTP",
+        "external": true
+      },
+      {
+        "id": "reniec_system",
+        "name": "API RENIEC",
+        "description": "Servicio de validación de identidad",
+        "technology": "REST API",
+        "external": true
+      },
+      {
+        "id": "sunat_system",
+        "name": "API SUNAT",
+        "description": "Servicio de validación de empresas",
+        "technology": "REST API",
+        "external": true
+      }
+    ],
+    "containers": [
+      {
+        "id": "web_app",
+        "name": "Aplicación Web",
+        "description": "Aplicación Django con REST API y GraphQL",
+        "technology": "Django 5.0, Python",
+        "system_id": "sistema_practicas"
+      },
+      {
+        "id": "database",
+        "name": "Base de Datos Principal",
+        "description": "Almacena información de usuarios, empresas y prácticas",
+        "technology": "PostgreSQL",
+        "system_id": "sistema_practicas"
+      },
+      {
+        "id": "cache",
+        "name": "Cache",
+        "description": "Cache para mejorar rendimiento",
+        "technology": "Redis",
+        "system_id": "sistema_practicas"
+      },
+      {
+        "id": "document_db",
+        "name": "Base de Datos de Documentos",
+        "description": "Almacena documentos y reportes",
+        "technology": "MongoDB",
+        "system_id": "sistema_practicas"
+      },
+      {
+        "id": "task_processor",
+        "name": "Procesador de Tareas",
+        "description": "Procesa tareas asíncronas y notificaciones",
+        "technology": "Celery",
+        "system_id": "sistema_practicas"
+      }
+    ],
+    "components": [
+      {
+        "id": "domain",
+        "name": "Dominio",
+        "description": "Entidades, Value Objects y lógica de negocio pura",
+        "technology": "Python Classes",
+        "container_id": "web_app",
+        "layer": "domain"
+      },
+      {
+        "id": "ports",
+        "name": "Puertos",
+        "description": "Interfaces que definen contratos para adaptadores",
+        "technology": "Python Interfaces",
+        "container_id": "web_app",
+        "layer": "ports"
+      },
+      {
+        "id": "use_cases",
+        "name": "Casos de Uso",
+        "description": "Lógica de aplicación y DTOs",
+        "technology": "Python Classes",
+        "container_id": "web_app",
+        "layer": "application"
+      },
+      {
+        "id": "rest_adapter",
+        "name": "Adaptador REST API",
+        "description": "API REST para comunicación con clientes",
+        "technology": "Django REST Framework",
+        "container_id": "web_app",
+        "layer": "adapters_primary"
+      },
+      {
+        "id": "graphql_adapter",
+        "name": "Adaptador GraphQL",
+        "description": "API GraphQL para consultas flexibles",
+        "technology": "Graphene-Django",
+        "container_id": "web_app",
+        "layer": "adapters_primary"
+      },
+      {
+        "id": "repository_adapter",
+        "name": "Adaptador Repositorio",
+        "description": "Implementación de repositorios para persistencia",
+        "technology": "Django ORM",
+        "container_id": "web_app",
+        "layer": "adapters_secondary"
+      },
+      {
+        "id": "external_adapter",
+        "name": "Adaptador Servicios Externos",
+        "description": "Integración con APIs externas",
+        "technology": "HTTP Clients",
+        "container_id": "web_app",
+        "layer": "adapters_secondary"
+      },
+      {
+        "id": "security",
+        "name": "Middleware de Seguridad",
+        "description": "Autenticación, autorización y validaciones",
+        "technology": "JWT, Django Auth",
+        "container_id": "web_app",
+        "layer": "infrastructure"
+      }
+    ],
+    "relationships": [
+      {
+        "from": "practicante",
+        "to": "sistema_practicas",
+        "description": "Gestiona sus prácticas profesionales",
+        "technology": "HTTPS"
+      },
+      {
+        "from": "supervisor",
+        "to": "sistema_practicas",
+        "description": "Supervisa y evalúa practicantes",
+        "technology": "HTTPS"
+      },
+      {
+        "from": "coordinador",
+        "to": "sistema_practicas",
+        "description": "Coordina y aprueba prácticas",
+        "technology": "HTTPS"
+      },
+      {
+        "from": "secretaria",
+        "to": "sistema_practicas",
+        "description": "Administra documentación",
+        "technology": "HTTPS"
+      },
+      {
+        "from": "administrador",
+        "to": "sistema_practicas",
+        "description": "Administra el sistema",
+        "technology": "HTTPS"
+      },
+      {
+        "from": "sistema_practicas",
+        "to": "email_system",
+        "description": "Envía notificaciones por email",
+        "technology": "SMTP"
+      },
+      {
+        "from": "sistema_practicas",
+        "to": "reniec_system",
+        "description": "Valida identidad de usuarios",
+        "technology": "HTTPS"
+      },
+      {
+        "from": "sistema_practicas",
+        "to": "sunat_system",
+        "description": "Valida información de empresas",
+        "technology": "HTTPS"
+      },
+      {
+        "from": "practicante",
+        "to": "web_app",
+        "description": "Interactúa a través de la interfaz web",
+        "technology": "HTTPS"
+      },
+      {
+        "from": "supervisor",
+        "to": "web_app",
+        "description": "Accede al sistema web",
+        "technology": "HTTPS"
+      },
+      {
+        "from": "coordinador",
+        "to": "web_app",
+        "description": "Usa la aplicación web",
+        "technology": "HTTPS"
+      },
+      {
+        "from": "web_app",
+        "to": "database",
+        "description": "Lee y escribe datos",
+        "technology": "SQL"
+      },
+      {
+        "from": "web_app",
+        "to": "cache",
+        "description": "Cachea datos frecuentes",
+        "technology": "Redis Protocol"
+      },
+      {
+        "from": "web_app",
+        "to": "document_db",
+        "description": "Almacena documentos",
+        "technology": "MongoDB Protocol"
+      },
+      {
+        "from": "web_app",
+        "to": "task_processor",
+        "description": "Envía tareas asíncronas",
+        "technology": "Message Queue"
+      },
+      {
+        "from": "rest_adapter",
+        "to": "use_cases",
+        "description": "Ejecuta casos de uso",
+        "technology": "Python"
+      },
+      {
+        "from": "graphql_adapter",
+        "to": "use_cases",
+        "description": "Ejecuta casos de uso",
+        "technology": "Python"
+      },
+      {
+        "from": "use_cases",
+        "to": "domain",
+        "description": "Usa entidades y lógica de dominio",
+        "technology": "Python"
+      },
+      {
+        "from": "use_cases",
+        "to": "ports",
+        "description": "Define contratos",
+        "technology": "Python"
+      },
+      {
+        "from": "repository_adapter",
+        "to": "ports",
+        "description": "Implementa interfaces de repositorio",
+        "technology": "Python"
+      },
+      {
+        "from": "external_adapter",
+        "to": "ports",
+        "description": "Implementa interfaces de servicios externos",
+        "technology": "Python"
+      },
+      {
+        "from": "security",
+        "to": "rest_adapter",
+        "description": "Protege endpoints REST",
+        "technology": "Python"
+      },
+      {
+        "from": "security",
+        "to": "graphql_adapter",
+        "description": "Protege consultas GraphQL",
+        "technology": "Python"
+      }
+    ]
+  },
+  "views": {
+    "context": {
+      "title": "Sistema de Gestión de Prácticas - Contexto",
+      "description": "Vista general del sistema y sus usuarios externos",
+      "elements": [
+        "practicante",
+        "supervisor",
+        "coordinador",
+        "secretaria",
+        "administrador",
+        "sistema_practicas",
+        "email_system",
+        "reniec_system",
+        "sunat_system"
+      ],
+      "layout": "hierarchical"
+    },
+    "containers": {
+      "title": "Sistema de Gestión de Prácticas - Contenedores",
+      "description": "Arquitectura de contenedores del sistema",
+      "elements": [
+        "web_app",
+        "database",
+        "cache",
+        "document_db",
+        "task_processor"
+      ],
+      "layout": "hierarchical"
+    },
+    "components": {
+      "title": "Aplicación Web - Componentes (Arquitectura Hexagonal)",
+      "description": "Componentes internos siguiendo arquitectura hexagonal",
+      "elements": [
+        "domain",
+        "ports",
+        "use_cases",
+        "rest_adapter",
+        "graphql_adapter",
+        "repository_adapter",
+        "external_adapter",
+        "security"
+      ],
+      "layout": "hexagonal"
+    },
+    "code": {
+      "title": "Estructura de Clases del Dominio",
+      "description": "Clases principales del dominio y sus relaciones",
+      "elements": [
+        "User",
+        "Student",
+        "Company",
+        "Practice",
+        "Supervisor",
+        "Coordinator"
+      ],
+      "layout": "class_diagram"
+    }
+  },
+  "diagrams": {
+    "context": "@startuml\n!define RECTANGLE class\n\ntitle Sistema de Gestión de Prácticas - Contexto del Sistema\n\nactor \"Practicante\" as prac #1a237e\nactor \"Supervisor\" as sup #1a237e  \nactor \"Coordinador\" as coord #1a237e\nactor \"Secretaria\" as sec #1a237e\nactor \"Administrador\" as admin #1a237e\n\nrectangle \"Sistema de Gestión\\nde Prácticas\" as sys #0d47a1\nrectangle \"Sistema de Email\" as email #6c757d\nrectangle \"API RENIEC\" as reniec #6c757d\nrectangle \"API SUNAT\" as sunat #6c757d\n\nprac --> sys : Gestiona sus\\nprácticas profesionales\nsup --> sys : Supervisa y evalúa\\npracticantes  \ncoord --> sys : Coordina y aprueba\\nprácticas\nsec --> sys : Administra\\ndocumentación\nadmin --> sys : Administra\\nel sistema\n\nsys --> email : Envía notificaciones\\npor email\nsys --> reniec : Valida identidad\\nde usuarios\nsys --> sunat : Valida información\\nde empresas\n\n@enduml",
+    "containers": "@startuml\n!define RECTANGLE class\n\ntitle Sistema de Gestión de Prácticas - Contenedores\n\nactor \"Usuarios\" as users #1a237e\n\npackage \"Sistema de Gestión de Prácticas\" {\n    rectangle \"Aplicación Web\\n[Django 5.0, Python]\" as webapp #2196f3\n    database \"Base de Datos Principal\\n[PostgreSQL]\" as db #388e3c\n    database \"Cache\\n[Redis]\" as cache #388e3c  \n    database \"Base de Datos de Documentos\\n[MongoDB]\" as docdb #388e3c\n    rectangle \"Procesador de Tareas\\n[Celery]\" as tasks #2196f3\n}\n\nrectangle \"Sistema de Email\" as email #6c757d\nrectangle \"API RENIEC\" as reniec #6c757d\nrectangle \"API SUNAT\" as sunat #6c757d\n\nusers --> webapp : Accede vía HTTPS\nwebapp --> db : Lee/escribe datos\\n[SQL]\nwebapp --> cache : Cachea datos\\n[Redis Protocol]  \nwebapp --> docdb : Almacena documentos\\n[MongoDB Protocol]\nwebapp --> tasks : Envía tareas\\n[Message Queue]\ntasks --> db : Consulta datos\\n[SQL]\n\nwebapp --> email : Envía emails\\n[SMTP]\nwebapp --> reniec : Consulta identidad\\n[HTTPS]\nwebapp --> sunat : Valida empresas\\n[HTTPS]\n\n@enduml",
+    "components": "@startuml\n!define RECTANGLE class\n\ntitle Aplicación Web - Componentes (Arquitectura Hexagonal)\n\npackage \"Adaptadores Primarios\" #e8eaf6 {\n    rectangle \"REST API\\n[Django REST Framework]\" as rest #ff9800\n    rectangle \"GraphQL API\\n[Graphene-Django]\" as graphql #ff9800\n}\n\npackage \"Aplicación\" #e3f2fd {\n    rectangle \"Casos de Uso\\n[Python Classes]\" as usecase #2196f3\n}\n\npackage \"Dominio\" #e8f5e8 {\n    rectangle \"Entidades\\n[Python Classes]\" as domain #4caf50\n    rectangle \"Puertos\\n[Python Interfaces]\" as ports #4caf50\n}\n\npackage \"Adaptadores Secundarios\" #fff3e0 {\n    rectangle \"Repositorio\\n[Django ORM]\" as repo #ff9800\n    rectangle \"Servicios Externos\\n[HTTP Clients]\" as external #ff9800\n}\n\npackage \"Infraestructura\" #fce4ec {\n    rectangle \"Seguridad\\n[JWT, Django Auth]\" as security #e91e63\n}\n\nrest --> usecase : Ejecuta casos de uso\ngraphql --> usecase : Ejecuta casos de uso\nusecase --> domain : Usa entidades y\\nlógica de dominio\nusecase --> ports : Define contratos\nrepo --> ports : Implementa interfaces\\nde repositorio\nexternal --> ports : Implementa interfaces\\nde servicios externos\nsecurity --> rest : Protege endpoints\nsecurity --> graphql : Protege consultas\n\n@enduml",
+    "code": "@startuml\n!define RECTANGLE class\n\ntitle Estructura de Clases del Dominio\n\nclass User {\n    +id: UUID\n    +email: str\n    +role: UserRole\n    +is_active: bool\n    +created_at: datetime\n    --\n    +authenticate()\n    +change_password()\n    +deactivate()\n}\n\nclass Student {\n    +student_code: str\n    +semester: int\n    +gpa: float\n    +career: str\n    --\n    +is_eligible_for_practice()\n    +calculate_hours_completed()\n}\n\nclass Company {\n    +ruc: str\n    +business_name: str\n    +legal_representative: str\n    +status: CompanyStatus\n    --\n    +validate_ruc()\n    +activate()\n    +deactivate()\n}\n\nclass Practice {\n    +id: UUID\n    +student: Student\n    +company: Company\n    +supervisor: Supervisor\n    +status: PracticeStatus\n    +start_date: date\n    +end_date: date\n    +total_hours: int\n    --\n    +approve()\n    +start()\n    +complete()\n    +calculate_progress()\n}\n\nclass Supervisor {\n    +professional_license: str\n    +years_experience: int\n    +specialization: str\n    --\n    +assign_to_practice()\n    +evaluate_student()\n}\n\nclass Coordinator {\n    +department: str\n    +academic_level: str\n    --\n    +approve_practice()\n    +assign_supervisor()\n    +generate_reports()\n}\n\nUser <|-- Student\nUser <|-- Supervisor  \nUser <|-- Coordinator\nStudent ||--o{ Practice\nCompany ||--o{ Practice\nSupervisor ||--o{ Practice\nPractice }o--|| Coordinator\n\n@enduml"
+  }
+}

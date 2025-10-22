@@ -103,9 +103,9 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME', default='gestion_practicas'),
-        'USER': config('DB_USER', default='postgres'),
-        'PASSWORD': config('DB_PASSWORD', default='postgres'),
+    'NAME': config('DB_NAME', default='upeu_ppp_system'),
+        'USER': config('DB_USER', default='upeu_admin'),
+        'PASSWORD': config('DB_PASSWORD', default='upeu_contra_2024'),
         'HOST': config('DB_HOST', default='localhost'),
         'PORT': config('DB_PORT', default='5432'),
     }
@@ -425,16 +425,15 @@ os.makedirs(BASE_DIR / 'logs', exist_ok=True)
 
 # drf-spectacular settings
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Gestión de Prácticas - API',
-    'DESCRIPTION': 'Documentación de endpoints REST para autenticación, usuarios y gestión de prácticas.',
-    'VERSION': '1.0.0',
+    'TITLE': 'API - Sistema de Prácticas UPeU',
+    'DESCRIPTION': 'API REST para gestión de prácticas profesionales',
+    'VERSION': '2.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
-    # Usa servidor relativo para que Swagger ejecute requests contra el mismo host de la página (evita localhost vs 127.0.0.1)
-    'SERVERS': [
-        {'url': '/'},
-    ],
-    # Swagger UI tweaks (dev convenience)
+    'COMPONENT_SPLIT_REQUEST': True,
     'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
         'persistAuthorization': True,
+        'displayRequestDuration': True,
     },
 }
+

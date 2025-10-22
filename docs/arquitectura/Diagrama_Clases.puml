@@ -1,0 +1,30 @@
+@startuml
+class User {
+  +id: UUID
+  +email: str
+  +role: str
+}
+class Practice {
+  +id: UUID
+  +code: str
+  +status: Status
+  +hours: int
+  +supervisor: Supervisor
+}
+class Company {
+  +id: UUID
+  +ruc: str
+  +status: str
+}
+class Supervisor {
+  +id: UUID
+  +name: str
+}
+class Coordinator {
+  +id: UUID
+  +name: str
+}
+User "1" -- "*" Practice
+Practice "1" -- "1" Company
+Practice "1" -- "1" Supervisor
+@enduml

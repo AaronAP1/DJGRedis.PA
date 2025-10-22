@@ -1,0 +1,42 @@
+@startuml
+
+title Diagramas de Actividad - Sistema PPP UPeU
+
+start
+
+:Estudiante revisa requisitos;
+
+if (Cumple requisitos?) then (Si)
+  :Buscar empresa;
+  :Preparar documentos;
+  :Crear solicitud;
+  :Subir documentos;
+  
+  :Secretaria revisa documentos;
+  
+  if (Documentos validos?) then (Si)
+    :Coordinador revisa solicitud;
+    
+    if (Practica aprobada?) then (Si)
+      :Generar convenio;
+      :Iniciar practica;
+      :Registrar horas;
+      :Evaluar progreso;
+      :Enviar reportes;
+      :Calificar practica;
+      :Completar exitosamente;
+    else (No)
+      :Rechazar con observaciones;
+    endif
+    
+  else (No)
+    :Solicitar correccion;
+  endif
+  
+else (No)
+  :Completar requisitos;
+endif
+
+stop
+
+@enduml

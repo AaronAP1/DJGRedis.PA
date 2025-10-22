@@ -1,0 +1,60 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Sistema de Gestión de Prácticas Profesionales UPeU - Contexto y Contenedores
+
+' Actores principales del sistema
+Person(practicante, "Practicante", "Estudiante que registra, gestiona su práctica y sube CV")
+Person(supervisor, "Supervisor", "Supervisor de empresa que evalúa y supervisa la práctica")
+Person(coordinador, "Coordinador EP", "Coordinador de Escuela Profesional que aprueba prácticas")
+Person(secretaria, "Secretaria", "Personal administrativo que gestiona documentos y validaciones")
+Person(admin, "Administrador", "Administrador del sistema que gestiona configuraciones")
+Person(superadmin, "SuperAdmin", "Super administrador con acceso total al sistema")
+Person(empresa, "Empresa", "Representante de empresa que publica oportunidades laborales")
+
+System_Boundary(c1, "Sistema PPP - UPeU") {
+    Container(web_app, "Aplicación Web", "Django 5.0 + DRF", "API REST y GraphQL para gestión integral de prácticas, CVs y oportunidades laborales")
+    Container(auth_service, "Servicio de Autenticación", "Django + JWT", "Manejo de autenticación, roles y permisos por escuela")
+    Container(file_service, "Servicio de Archivos", "Django + Storage", "Gestión de CVs, documentos de prácticas y reportes")
+    
+    ContainerDb(database, "Base de Datos Principal", "PostgreSQL", "Almacena usuarios, prácticas, empresas, oportunidades laborales y configuraciones")
+    ContainerDb(cache, "Cache y Sesiones", "Redis", "Cache de consultas frecuentes, sesiones y rate limiting")
+    ContainerDb(document_db, "Base de Documentos", "MongoDB", "Almacenamiento de documentos, CVs y archivos adjuntos")
+    
+    Container(task_queue, "Cola de Tareas", "Celery + Redis", "Procesamiento asíncrono: notificaciones, validaciones y reportes")
+    Container(monitoring, "Monitoreo", "Logging Service", "Auditoría de seguridad y monitoreo de actividades")
+}
+
+System_Ext(email_system, "Sistema de Email", "Envío de notificaciones automáticas")
+System_Ext(sunedu_system, "Sistema SUNEDU", "Validación de universidades, carreras y códigos")
+System_Ext(reniec_system, "Sistema RENIEC", "Validación de DNI y datos personales")
+System_Ext(sunat_system, "Sistema SUNAT", "Validación de RUC de empresas")
+
+' Relaciones de usuarios con el sistema
+Rel(practicante, web_app, "Gestiona prácticas, sube CV, postula a oportunidades", "HTTPS")
+Rel(supervisor, web_app, "Supervisa y evalúa practicantes", "HTTPS")
+Rel(coordinador, web_app, "Aprueba prácticas y gestiona escuela", "HTTPS")
+Rel(secretaria, web_app, "Valida documentos y gestiona trámites", "HTTPS")
+Rel(admin, web_app, "Administra sistema y configuraciones", "HTTPS")
+Rel(superadmin, web_app, "Acceso total y gestión de escuelas", "HTTPS")
+Rel(empresa, web_app, "Publica oportunidades laborales", "HTTPS")
+
+' Relaciones internas del sistema
+Rel(web_app, auth_service, "Autentica y autoriza", "Internal API")
+Rel(web_app, file_service, "Gestiona archivos", "Internal API")
+Rel(web_app, database, "CRUD operaciones", "SQL/TCP")
+Rel(web_app, cache, "Cache y sesiones", "Redis Protocol")
+Rel(web_app, document_db, "Documentos y archivos", "MongoDB Protocol")
+Rel(web_app, task_queue, "Tareas asíncronas", "Redis Protocol")
+Rel(web_app, monitoring, "Logs de auditoría", "Internal API")
+
+' Relaciones con sistemas externos
+Rel(task_queue, email_system, "Envía notificaciones", "SMTP")
+Rel(web_app, sunedu_system, "Valida datos académicos", "HTTPS/REST")
+Rel(web_app, reniec_system, "Valida DNI", "HTTPS/SOAP")
+Rel(web_app, sunat_system, "Valida RUC empresas", "HTTPS/REST")
+
+@enduml

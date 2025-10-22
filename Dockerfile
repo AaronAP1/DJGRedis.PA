@@ -24,7 +24,7 @@ WORKDIR /app
 COPY requirements/ requirements/
 
 # Instalar dependencias de Python
-RUN pip install --no-cache-dir -r requirements/production.txt
+RUN pip install --no-cache-dir -r requirements/minimal.txt
 
 # Copiar código de la aplicación
 COPY . .

@@ -1,0 +1,38 @@
+@startuml
+!define RECTANGLE class
+
+title Aplicación Web - Componentes (Arquitectura Hexagonal)
+
+package "Adaptadores Primarios" #e8eaf6 {
+    rectangle "REST API\n[Django REST Framework]" as rest #ff9800
+    rectangle "GraphQL API\n[Graphene-Django]" as graphql #ff9800
+}
+
+package "Aplicación" #e3f2fd {
+    rectangle "Casos de Uso\n[Python Classes]" as usecase #2196f3
+}
+
+package "Dominio" #e8f5e8 {
+    rectangle "Entidades\n[Python Classes]" as domain #4caf50
+    rectangle "Puertos\n[Python Interfaces]" as ports #4caf50
+}
+
+package "Adaptadores Secundarios" #fff3e0 {
+    rectangle "Repositorio\n[Django ORM]" as repo #ff9800
+    rectangle "Servicios Externos\n[HTTP Clients]" as external #ff9800
+}
+
+package "Infraestructura" #fce4ec {
+    rectangle "Seguridad\n[JWT, Django Auth]" as security #e91e63
+}
+
+rest --> usecase : Ejecuta casos de uso
+graphql --> usecase : Ejecuta casos de uso
+usecase --> domain : Usa entidades y\nlógica de dominio
+usecase --> ports : Define contratos
+repo --> ports : Implementa interfaces\nde repositorio
+external --> ports : Implementa interfaces\nde servicios externos
+security --> rest : Protege endpoints
+security --> graphql : Protege consultas
+
+@enduml

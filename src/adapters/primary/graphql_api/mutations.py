@@ -26,10 +26,11 @@ from django.core.files.base import ContentFile
 import secrets
 import logging
 import base64
-import imghdr
 import time
 import requests
 from urllib.parse import urlparse
+from PIL import Image
+import io
 from rest_framework_simplejwt.tokens import RefreshToken as DRFRefreshToken
 from src.infrastructure.security.tasks import send_welcome_email
 from src.infrastructure.security.decorators import sanitize_mutation_input

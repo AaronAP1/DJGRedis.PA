@@ -1,0 +1,29 @@
+@startuml
+entity "User" as User {
+  *id : UUID
+  *email : string
+  *role : string
+}
+entity "Practice" as Practice {
+  *id : UUID
+  *code : string
+  *status : Status
+  *hours : int
+}
+entity "Company" as Company {
+  *id : UUID
+  *ruc : string
+  *status : string
+}
+User -- Practice : realiza >
+Practice -- Company : en >
+
+enum Status {
+  DRAFT
+  PENDING
+  APPROVED
+  IN_PROGRESS
+  COMPLETED
+}
+Practice --> Status
+@enduml

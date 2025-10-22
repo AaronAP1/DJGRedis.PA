@@ -1,0 +1,425 @@
+@startuml
+!theme plain
+
+title Modelo de Base de Datos Completo - Sistema PPP UPeU
+
+' === CONFIGURACIÓN Y GESTIÓN ===
+
+entity "upeu_escuela" as escuela {
+  * id : INTEGER <<PK>>
+  --
+  * nombre : VARCHAR(100)
+  * codigo : VARCHAR(10) <<UNIQUE>>
+  * descripcion : TEXT
+  * estado : ENUM('ACTIVO', 'INACTIVO')
+  * fecha_creacion : TIMESTAMP
+}
+
+entity "upeu_configuracion" as config {
+  * id : INTEGER <<PK>>
+  --
+  * clave : VARCHAR(100) <<UNIQUE>>
+  * valor : TEXT
+  * descripcion : TEXT
+  * fecha_actualizacion : TIMESTAMP
+}
+
+entity "upeu_rama" as rama {
+  * id : INTEGER <<PK>>
+  --
+  * nombre : VARCHAR(100)
+  * descripcion : TEXT
+  * escuela_id : INTEGER <<FK>>
+  * activa : BOOLEAN
+}
+
+' === USUARIOS Y ROLES ===
+
+entity "upeu_rol" as rol {
+  * id : INTEGER <<PK>>
+  --
+  * nombre : ENUM('PRACTICANTE', 'SUPERVISOR', 'SECRETARIA', 'COORDINADOR', 'ADMINISTRADOR', 'SUPERADMIN')
+  * descripcion : TEXT
+  * permisos : JSON
+}
+
+entity "upeu_usuario" as usuario {
+  * id : INTEGER <<PK>>
+  --
+  * correo : VARCHAR(100) <<UNIQUE>>
+  * hash_contraseña : VARCHAR(255)
+  * nombres : VARCHAR(100)
+  * apellidos : VARCHAR(100)
+  * dni : VARCHAR(8) <<UNIQUE>>
+  * telefono : VARCHAR(15)
+  * rol_id : INTEGER <<FK>>
+  * escuela_id : INTEGER <<FK>>
+  * activo : BOOLEAN
+  * ultimo_acceso : TIMESTAMP
+  * fecha_creacion : TIMESTAMP
+  * creado_por : INTEGER <<FK>>
+}
+
+' === PERFILES ESPECÍFICOS ===
+
+entity "upeu_perfil_practicante" as practicante {
+  * id : INTEGER <<PK>>
+  --
+  * usuario_id : INTEGER <<FK>> <<UNIQUE>>
+  * codigo : VARCHAR(10) <<UNIQUE>>
+  * semestre : INTEGER
+  * promedio : DECIMAL(4,2)
+  * fecha_nacimiento : DATE
+  * direccion : TEXT
+  * escuela_id : INTEGER <<FK>>
+  * rama_id : INTEGER <<FK>>
+  * cv_path : VARCHAR(255)
+  * fecha_cv_subido : TIMESTAMP
+  * estado_academico : ENUM('REGULAR', 'IRREGULAR', 'SUSPENDIDO')
+}
+
+entity "upeu_perfil_supervisor" as supervisor {
+  * id : INTEGER <<PK>>
+  --
+  * usuario_id : INTEGER <<FK>> <<UNIQUE>>
+  * empresa_id : INTEGER <<FK>>
+  * cargo : VARCHAR(100)
+  * telefono_trabajo : VARCHAR(15)
+  * correo_trabajo : VARCHAR(100)
+  * años_experiencia : INTEGER
+  * especialidad : VARCHAR(100)
+}
+
+entity "upeu_coordinador_escuela" as coordinador {
+  * id : INTEGER <<PK>>
+  --
+  * usuario_id : INTEGER <<FK>>
+  * escuela_id : INTEGER <<FK>>
+  * fecha_asignacion : DATE
+  * fecha_fin : DATE
+  * activo : BOOLEAN
+}
+
+entity "upeu_perfil_secretaria" as secretaria {
+  * id : INTEGER <<PK>>
+  --
+  * usuario_id : INTEGER <<FK>> <<UNIQUE>>
+  * escuela_id : INTEGER <<FK>>
+  * fecha_asignacion : DATE
+  * permisos_especiales : JSON
+}
+
+entity "upeu_perfil_admin" as admin {
+  * id : INTEGER <<PK>>
+  --
+  * usuario_id : INTEGER <<FK>> <<UNIQUE>>
+  * nivel_acceso : INTEGER
+  * fecha_asignacion : DATE
+}
+
+entity "upeu_perfil_superadmin" as superadmin {
+  * id : INTEGER <<PK>>
+  --
+  * usuario_id : INTEGER <<FK>> <<UNIQUE>>
+  * fecha_asignacion : DATE
+  * permisos_totales : BOOLEAN
+}
+
+' === EMPRESAS ===
+
+entity "upeu_empresa" as empresa {
+  * id : INTEGER <<PK>>
+  --
+  * nombre : VARCHAR(150)
+  * ruc : VARCHAR(11) <<UNIQUE>>
+  * razon_social : VARCHAR(200)
+  * direccion : TEXT
+  * distrito : VARCHAR(50)
+  * provincia : VARCHAR(50)
+  * departamento : VARCHAR(50)
+  * telefono : VARCHAR(15)
+  * correo : VARCHAR(100)
+  * sitio_web : VARCHAR(200)
+  * sector_economico : VARCHAR(100)
+  * tamaño_empresa : ENUM('MICRO', 'PEQUEÑA', 'MEDIANA', 'GRANDE')
+  * estado : ENUM('ACTIVO', 'INACTIVO', 'SUSPENDIDO')
+  * validado_por : INTEGER <<FK>>
+  * fecha_validacion : TIMESTAMP
+  * fecha_registro : TIMESTAMP
+}
+
+' === PRÁCTICAS ===
+
+entity "upeu_practica" as practica {
+  * id : INTEGER <<PK>>
+  --
+  * practicante_id : INTEGER <<FK>>
+  * empresa_id : INTEGER <<FK>>
+  * supervisor_id : INTEGER <<FK>>
+  * coordinador_id : INTEGER <<FK>>
+  * secretaria_id : INTEGER <<FK>>
+  * titulo : VARCHAR(200)
+  * descripcion : TEXT
+  * objetivos : TEXT
+  * fecha_inicio : DATE
+  * fecha_fin : DATE
+  * horas_totales : INTEGER
+  * horas_completadas : INTEGER
+  * modalidad : ENUM('PRESENCIAL', 'REMOTO', 'HIBRIDO')
+  * remunerada : BOOLEAN
+  * monto_remuneracion : DECIMAL(10,2)
+  * estado : ENUM('BORRADOR', 'PENDIENTE', 'APROBADO', 'EN_PROGRESO', 'COMPLETADO', 'RECHAZADO', 'CANCELADO')
+  * fecha_creacion : TIMESTAMP
+  * fecha_actualizacion : TIMESTAMP
+  * observaciones : TEXT
+}
+
+entity "upeu_historial_estado_practica" as historial_practica {
+  * id : INTEGER <<PK>>
+  --
+  * practica_id : INTEGER <<FK>>
+  * estado_anterior : VARCHAR(50)
+  * estado_nuevo : VARCHAR(50)
+  * cambiado_por : INTEGER <<FK>>
+  * fecha_cambio : TIMESTAMP
+  * comentario : TEXT
+  * justificacion : TEXT
+}
+
+' === DOCUMENTOS ===
+
+entity "upeu_tipo_documento" as tipo_documento {
+  * id : INTEGER <<PK>>
+  --
+  * nombre : VARCHAR(100)
+  * descripcion : TEXT
+  * requerido_en_estado : VARCHAR(50)
+  * extension_permitida : VARCHAR(20)
+  * tamaño_maximo_mb : INTEGER
+  * plantilla_path : VARCHAR(255)
+}
+
+entity "upeu_documento_practica" as documento {
+  * id : INTEGER <<PK>>
+  --
+  * practica_id : INTEGER <<FK>>
+  * tipo_documento_id : INTEGER <<FK>>
+  * nombre_archivo : VARCHAR(255)
+  * ruta_archivo : VARCHAR(255)
+  * tamaño_bytes : BIGINT
+  * hash_archivo : VARCHAR(64)
+  * subido_por : INTEGER <<FK>>
+  * fecha_subida : TIMESTAMP
+  * estado : ENUM('PENDIENTE', 'VALIDADO', 'RECHAZADO', 'OBSERVADO')
+  * validado_por : INTEGER <<FK>>
+  * fecha_validacion : TIMESTAMP
+  * comentario_validacion : TEXT
+  * version : INTEGER
+}
+
+' === VALIDACIONES ===
+
+entity "upeu_validacion" as validacion {
+  * id : INTEGER <<PK>>
+  --
+  * practica_id : INTEGER <<FK>>
+  * documento_id : INTEGER <<FK>>
+  * validador_id : INTEGER <<FK>>
+  * tipo_validacion : ENUM('DOCUMENTO', 'PRACTICA', 'EMPRESA', 'ACADEMICA')
+  * estado : ENUM('APROBADO', 'RECHAZADO', 'OBSERVADO', 'PENDIENTE')
+  * comentario : TEXT
+  * criterios_validacion : JSON
+  * fecha_creacion : TIMESTAMP
+  * fecha_resolucion : TIMESTAMP
+}
+
+' === REPORTES Y EVALUACIONES ===
+
+entity "upeu_reporte_practica" as reporte {
+  * id : INTEGER <<PK>>
+  --
+  * practica_id : INTEGER <<FK>>
+  * tipo_reporte : ENUM('INICIAL', 'INTERMEDIO', 'FINAL', 'EXTRAORDINARIO')
+  * titulo : VARCHAR(200)
+  * contenido : TEXT
+  * ruta_archivo : VARCHAR(255)
+  * fecha_envio : TIMESTAMP
+  * revisado_por : INTEGER <<FK>>
+  * fecha_revision : TIMESTAMP
+  * comentario_revision : TEXT
+  * calificacion : DECIMAL(4,2)
+  * aprobado : BOOLEAN
+}
+
+entity "upeu_evaluacion_practica" as evaluacion {
+  * id : INTEGER <<PK>>
+  --
+  * practica_id : INTEGER <<FK>>
+  * evaluador_id : INTEGER <<FK>>
+  * tipo_evaluador : ENUM('SUPERVISOR', 'COORDINADOR', 'AUTOEVALUACION')
+  * criterios_evaluacion : JSON
+  * puntaje_total : DECIMAL(5,2)
+  * comentarios : TEXT
+  * recomendaciones : TEXT
+  * fecha_evaluacion : TIMESTAMP
+  * periodo_evaluacion : VARCHAR(50)
+}
+
+' === OPORTUNIDADES LABORALES ===
+
+entity "upeu_oportunidad_laboral" as oportunidad {
+  * id : INTEGER <<PK>>
+  --
+  * empresa_id : INTEGER <<FK>>
+  * titulo : VARCHAR(200)
+  * descripcion : TEXT
+  * rama_id : INTEGER <<FK>>
+  * tipo_empleo : ENUM('TIEMPO_COMPLETO', 'MEDIO_TIEMPO', 'PRACTICAS', 'FREELANCE')
+  * modalidad : ENUM('PRESENCIAL', 'REMOTO', 'HIBRIDO')
+  * salario_min : DECIMAL(10,2)
+  * salario_max : DECIMAL(10,2)
+  * requisitos : TEXT
+  * beneficios : TEXT
+  * ubicacion : VARCHAR(200)
+  * experiencia_requerida : INTEGER
+  * fecha_publicacion : TIMESTAMP
+  * fecha_cierre : DATE
+  * estado : ENUM('ACTIVO', 'INACTIVO', 'CERRADO', 'PAUSADO')
+  * vacantes_disponibles : INTEGER
+  * contacto_email : VARCHAR(100)
+  * contacto_telefono : VARCHAR(15)
+}
+
+entity "upeu_postulacion_oportunidad" as postulacion {
+  * id : INTEGER <<PK>>
+  --
+  * oportunidad_id : INTEGER <<FK>>
+  * practicante_id : INTEGER <<FK>>
+  * fecha_postulacion : TIMESTAMP
+  * estado : ENUM('PENDIENTE', 'EN_REVISION', 'PRESELECCIONADO', 'ENTREVISTA', 'ACEPTADO', 'RECHAZADO', 'RETIRADO')
+  * comentario_postulacion : TEXT
+  * cv_utilizado : VARCHAR(255)
+  * carta_presentacion : TEXT
+  * fecha_respuesta : TIMESTAMP
+  * comentario_empresa : TEXT
+  * fecha_entrevista : TIMESTAMP
+  * calificacion_empresa : INTEGER
+}
+
+' === NOTIFICACIONES Y COMUNICACIÓN ===
+
+entity "upeu_notificacion" as notificacion {
+  * id : INTEGER <<PK>>
+  --
+  * usuario_id : INTEGER <<FK>>
+  * tipo : ENUM('SISTEMA', 'EMAIL', 'SMS', 'PUSH')
+  * titulo : VARCHAR(200)
+  * mensaje : TEXT
+  * prioridad : ENUM('BAJA', 'MEDIA', 'ALTA', 'CRITICA')
+  * leido : BOOLEAN
+  * fecha_creacion : TIMESTAMP
+  * fecha_lectura : TIMESTAMP
+  * fecha_vencimiento : TIMESTAMP
+  * datos_adicionales : JSON
+}
+
+entity "upeu_mensaje" as mensaje {
+  * id : INTEGER <<PK>>
+  --
+  * remitente_id : INTEGER <<FK>>
+  * destinatario_id : INTEGER <<FK>>
+  * practica_id : INTEGER <<FK>>
+  * asunto : VARCHAR(200)
+  * contenido : TEXT
+  * fecha_envio : TIMESTAMP
+  * fecha_lectura : TIMESTAMP
+  * tipo : ENUM('CONSULTA', 'NOTIFICACION', 'RECORDATORIO')
+  * estado : ENUM('ENVIADO', 'ENTREGADO', 'LEIDO', 'RESPONDIDO')
+}
+
+' === AUDITORÍA Y LOGS ===
+
+entity "upeu_log_auditoria" as auditoria {
+  * id : INTEGER <<PK>>
+  --
+  * usuario_id : INTEGER <<FK>>
+  * accion : VARCHAR(100)
+  * entidad : VARCHAR(50)
+  * entidad_id : INTEGER
+  * valores_anteriores : JSON
+  * valores_nuevos : JSON
+  * direccion_ip : VARCHAR(45)
+  * user_agent : TEXT
+  * fecha : TIMESTAMP
+  * resultado : ENUM('EXITOSO', 'FALLIDO', 'PARCIAL')
+  * detalles : TEXT
+}
+
+entity "upeu_sesion_usuario" as sesion {
+  * id : INTEGER <<PK>>
+  --
+  * usuario_id : INTEGER <<FK>>
+  * token_sesion : VARCHAR(255) <<UNIQUE>>
+  * direccion_ip : VARCHAR(45)
+  * user_agent : TEXT
+  * fecha_inicio : TIMESTAMP
+  * fecha_ultimo_acceso : TIMESTAMP
+  * fecha_expiracion : TIMESTAMP
+  * activa : BOOLEAN
+  * dispositivo : VARCHAR(100)
+  * ubicacion : VARCHAR(100)
+}
+
+' === RELACIONES PRINCIPALES ===
+
+' Escuela como centro
+escuela ||--o{ usuario
+escuela ||--o{ rama
+escuela ||--o{ coordinador
+escuela ||--o{ secretaria
+escuela ||--o{ practicante
+
+' Usuario y roles
+rol ||--o{ usuario
+usuario ||--o| practicante
+usuario ||--o| supervisor
+usuario ||--o| coordinador
+usuario ||--o| secretaria
+usuario ||--o| admin
+usuario ||--o| superadmin
+
+' Empresa
+empresa ||--o{ supervisor
+empresa ||--o{ practica
+empresa ||--o{ oportunidad
+
+' Práctica (centro del sistema)
+practicante ||--o{ practica
+supervisor ||--o{ practica
+practica ||--o{ documento
+practica ||--o{ historial_practica
+practica ||--o{ reporte
+practica ||--o{ evaluacion
+practica ||--o{ validacion
+practica ||--o{ mensaje
+
+' Documentos
+tipo_documento ||--o{ documento
+documento ||--o{ validacion
+
+' Oportunidades laborales
+rama ||--o{ oportunidad
+rama ||--o{ practicante
+oportunidad ||--o{ postulacion
+practicante ||--o{ postulacion
+
+' Comunicación
+usuario ||--o{ notificacion
+usuario ||--o{ mensaje : remitente
+usuario ||--o{ mensaje : destinatario
+usuario ||--o{ sesion
+
+' Auditoría
+usuario ||--o{ auditoria
+
+@enduml

@@ -1,0 +1,212 @@
+@startuml
+!theme plain
+
+title Diagramas de Secuencia - Sistema PPP UPeU
+
+' === SECUENCIA 1: REGISTRO DE PRÁCTICA ===
+
+group Caso de Uso: Registro de Práctica
+  participant "Practicante" as P
+  participant "REST API" as API
+  participant "CrearPracticaUseCase" as UC
+  participant "PracticaRepository" as PR
+  participant "EmpresaRepository" as ER
+  participant "ValidationService" as VS
+  participant "NotificationService" as NS
+  participant "PostgreSQL" as DB
+  
+  P -> API: POST /api/practicas/crear
+  note right: {\n "empresa_id": "123",\n "supervisor_id": "456",\n "fecha_inicio": "2025-01-15",\n "fecha_fin": "2025-06-15"\n}
+  
+  API -> UC: execute(CrearPracticaRequest)
+  
+  UC -> ER: find_by_id(empresa_id)
+  ER -> DB: SELECT * FROM upeu_empresa WHERE id = ?
+  DB --> ER: Empresa data
+  ER --> UC: Empresa entity
+  
+  UC -> VS: validate_empresa_activa(empresa)
+  VS --> UC: validation_result
+  
+  alt Empresa válida
+    UC -> PR: save(nueva_practica)
+    PR -> DB: INSERT INTO upeu_practica
+    DB --> PR: practica_id
+    PR --> UC: Practica entity
+    
+    UC -> NS: notify_coordinador(practica)
+    NS --> UC: notification_sent
+    
+    UC --> API: ApiResponse.success(practica_dto)
+    API --> P: 201 Created + PracticaResponse
+  else Empresa inválida
+    UC --> API: ApiResponse.error("Empresa no válida")
+    API --> P: 400 Bad Request
+  end
+end
+
+newpage
+
+' === SECUENCIA 2: SUBIDA DE CV ===
+
+group Caso de Uso: Subida de CV
+  participant "Practicante" as P
+  participant "GraphQL API" as GQL
+  participant "SubirCVUseCase" as CVUC
+  participant "PracticanteRepository" as PRREPO
+  participant "FileService" as FS
+  participant "S3 Storage" as S3
+  participant "PostgreSQL" as DB
+  
+  P -> GQL: mutation subirCV
+  note right: {\n mutation {\n   subirCV(archivo: $file) {\n     success\n     mensaje\n     url\n   }\n }\n}
+  
+  GQL -> CVUC: execute(SubirCVRequest)
+  
+  CVUC -> FS: upload_file(cv_bytes, "cvs/practicante_123.pdf")
+  FS -> S3: PUT /bucket/cvs/practicante_123.pdf
+  S3 --> FS: file_url
+  FS --> CVUC: uploaded_path
+  
+  CVUC -> PRREPO: update_cv_path(practicante_id, file_path)
+  PRREPO -> DB: UPDATE upeu_perfil_practicante SET cv_path = ?, fecha_cv_subido = ?
+  DB --> PRREPO: success
+  PRREPO --> CVUC: updated_practicante
+  
+  CVUC --> GQL: ApiResponse.success(cv_dto)
+  GQL --> P: { "success": true, "url": "https://..." }
+end
+
+newpage
+
+' === SECUENCIA 3: POSTULACIÓN A OPORTUNIDAD LABORAL ===
+
+group Caso de Uso: Postulación a Oportunidad Laboral
+  participant "Practicante" as P
+  participant "REST API" as API
+  participant "PostularOportunidadUseCase" as PUC
+  participant "OportunidadRepository" as OR
+  participant "PostulacionRepository" as PRREPO
+  participant "NotificationService" as NS
+  participant "PostgreSQL" as DB
+  
+  P -> API: POST /api/oportunidades/{id}/postular
+  
+  API -> PUC: execute(PostularRequest)
+  
+  PUC -> OR: find_by_id(oportunidad_id)
+  OR -> DB: SELECT * FROM upeu_oportunidad_laboral WHERE id = ?
+  DB --> OR: oportunidad_data
+  OR --> PUC: OportunidadLaboral entity
+  
+  alt Oportunidad vigente
+    PUC -> PRREPO: find_existing_postulation(practicante_id, oportunidad_id)
+    PRREPO -> DB: SELECT * FROM upeu_postulacion_oportunidad
+    DB --> PRREPO: null (no existe)
+    PRREPO --> PUC: null
+    
+    PUC -> PRREPO: save(nueva_postulacion)
+    PRREPO -> DB: INSERT INTO upeu_postulacion_oportunidad
+    DB --> PRREPO: postulacion_id
+    PRREPO --> PUC: Postulacion entity
+    
+    PUC -> NS: notify_empresa(postulacion)
+    NS --> PUC: notification_sent
+    
+    PUC --> API: ApiResponse.success(postulacion_dto)
+    API --> P: 201 Created + PostulacionResponse
+  else Oportunidad cerrada
+    PUC --> API: ApiResponse.error("Oportunidad no vigente")
+    API --> P: 400 Bad Request
+  end
+end
+
+newpage
+
+' === SECUENCIA 4: VALIDACIÓN DE DOCUMENTO ===
+
+group Caso de Uso: Validación de Documento por Secretaria
+  participant "Secretaria" as S
+  participant "REST API" as API
+  participant "ValidarDocumentoUseCase" as VUC
+  participant "DocumentoRepository" as DR
+  participant "ValidationService" as VS
+  participant "NotificationService" as NS
+  participant "PostgreSQL" as DB
+  
+  S -> API: PUT /api/documentos/{id}/validar
+  note right: {\n "estado": "VALIDADO",\n "comentario": "Documento correcto"\n}
+  
+  API -> VUC: execute(ValidarDocumentoRequest)
+  
+  VUC -> DR: find_by_id(documento_id)
+  DR -> DB: SELECT * FROM upeu_documento_practica WHERE id = ?
+  DB --> DR: documento_data
+  DR --> VUC: DocumentoPractica entity
+  
+  VUC -> VS: validate_user_permissions(secretaria_id, documento.escuela_id)
+  VS --> VUC: permissions_valid
+  
+  alt Permisos válidos
+    VUC -> DR: update_validation_status(documento, estado, comentario)
+    DR -> DB: UPDATE upeu_documento_practica SET estado = ?, validado_por = ?, fecha_validacion = ?
+    DB --> DR: success
+    DR --> VUC: updated_documento
+    
+    VUC -> NS: notify_practicante(documento_validado)
+    NS --> VUC: notification_sent
+    
+    VUC --> API: ApiResponse.success(documento_dto)
+    API --> S: 200 OK + DocumentoResponse
+  else Sin permisos
+    VUC --> API: ApiResponse.error("Sin permisos suficientes")
+    API --> S: 403 Forbidden
+  end
+end
+
+newpage
+
+' === SECUENCIA 5: APROBACIÓN DE PRÁCTICA POR COORDINADOR ===
+
+group Caso de Uso: Aprobación de Práctica por Coordinador
+  participant "Coordinador" as C
+  participant "GraphQL API" as GQL
+  participant "AprobarPracticaUseCase" as AUC
+  participant "PracticaRepository" as PR
+  participant "EstadoHistoryRepository" as HR
+  participant "NotificationService" as NS
+  participant "PostgreSQL" as DB
+  
+  C -> GQL: mutation aprobarPractica
+  note right: {\n mutation {\n   aprobarPractica(id: "123", comentario: "Aprobado") {\n     success\n     practica {\n       id\n       estado\n     }\n   }\n }\n}
+  
+  GQL -> AUC: execute(AprobarPracticaRequest)
+  
+  AUC -> PR: find_by_id(practica_id)
+  PR -> DB: SELECT * FROM upeu_practica WHERE id = ?
+  DB --> PR: practica_data
+  PR --> AUC: Practica entity
+  
+  alt Estado válido para aprobación
+    AUC -> PR: change_status(practica, "APROBADO")
+    PR -> DB: UPDATE upeu_practica SET estado = 'APROBADO'
+    DB --> PR: success
+    PR --> AUC: updated_practica
+    
+    AUC -> HR: save_status_change(practica_id, "APROBADO", coordinador_id)
+    HR -> DB: INSERT INTO upeu_historial_estado_practica
+    DB --> HR: history_id
+    HR --> AUC: status_saved
+    
+    AUC -> NS: notify_all_stakeholders(practica_aprobada)
+    NS --> AUC: notifications_sent
+    
+    AUC --> GQL: ApiResponse.success(practica_dto)
+    GQL --> C: { "success": true, "practica": {...} }
+  else Estado inválido
+    AUC --> GQL: ApiResponse.error("Estado inválido para aprobación")
+    GQL --> C: { "success": false, "error": "..." }
+  end
+end
+
+@enduml

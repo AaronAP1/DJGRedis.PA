@@ -1,0 +1,165 @@
+@startuml DomainClasses
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title Entidades del Dominio - Diagrama de Clases
+
+package "Domain Entities" {
+    abstract class Entity {
+        +UUID id
+        +datetime created_at
+        +datetime updated_at
+        --
+        +__eq__(other)
+        +__hash__()
+    }
+    
+    class User {
+        +Email email
+        +str first_name
+        +str last_name
+        +UserRole role
+        +bool is_active
+        +Optional[datetime] last_login
+        +Optional[str] password_hash
+        --
+        +full_name(): str
+        +can_perform_action(action: str): bool
+        +update_last_login()
+        +deactivate()
+        +activate()
+    }
+    
+    class Student {
+        +User user
+        +CodigoEstudiante codigo_estudiante
+        +Documento documento
+        +Optional[Telefono] telefono
+        +Optional[Direccion] direccion
+        +Optional[str] carrera
+        +Optional[int] semestre_actual
+        +Optional[float] promedio_ponderado
+        --
+        +puede_realizar_practica(): bool
+        +actualizar_datos_academicos(semestre: int, promedio: float)
+    }
+    
+    class Company {
+        +RUC ruc
+        +str razon_social
+        +Optional[str] nombre_comercial
+        +Optional[Direccion] direccion
+        +Optional[Telefono] telefono
+        +Optional[Email] email
+        +Optional[str] sector_economico
+        +Optional[str] tamaño_empresa
+        +CompanyStatus status
+        +Optional[datetime] fecha_validacion
+        --
+        +validar_empresa()
+        +suspender_empresa(motivo: str)
+        +puede_recibir_practicantes(): bool
+        +nombre_para_mostrar(): str
+    }
+    
+    class Supervisor {
+        +User user
+        +Company company
+        +Documento documento
+        +str cargo
+        +Optional[Telefono] telefono
+        +Optional[int] años_experiencia
+        --
+        +puede_supervisar_practica(practice: Practice): bool
+    }
+    
+    class Practice {
+        +Student student
+        +Company company
+        +Optional[Supervisor] supervisor
+        +str titulo
+        +str descripcion
+        +List[str] objetivos
+        +Optional[Periodo] periodo
+        +int horas_totales
+        +str modalidad
+        +Optional[str] area_practica
+        +PracticeStatus status
+        +Optional[Calificacion] calificacion_final
+        +str observaciones
+        --
+        +asignar_supervisor(supervisor: Supervisor)
+        +aprobar_practica()
+        +iniciar_practica()
+        +completar_practica(calificacion: Calificacion)
+    }
+}
+
+package "Value Objects" {
+    class Email {
+        +str value
+        --
+        +is_valid(): bool
+    }
+    
+    class RUC {
+        +str value
+        --
+        +is_valid(): bool
+    }
+    
+    class CodigoEstudiante {
+        +str value
+        --
+        +is_valid(): bool
+        +get_year(): int
+    }
+}
+
+package "Enums" {
+    enum UserRole {
+        PRACTICANTE
+        SUPERVISOR
+        COORDINADOR
+        SECRETARIA
+        ADMINISTRADOR
+    }
+    
+    enum PracticeStatus {
+        DRAFT
+        PENDING
+        APPROVED
+        IN_PROGRESS
+        COMPLETED
+        CANCELLED
+    }
+    
+    enum CompanyStatus {
+        PENDING_VALIDATION
+        ACTIVE
+        SUSPENDED
+        INACTIVE
+    }
+}
+
+' Relaciones
+Entity <|-- User
+Entity <|-- Student
+Entity <|-- Company
+Entity <|-- Supervisor
+Entity <|-- Practice
+
+Student --> User : user
+Supervisor --> User : user
+Supervisor --> Company : company
+Practice --> Student : student
+Practice --> Company : company
+Practice --> Supervisor : supervisor
+
+User --> Email : email
+User --> UserRole : role
+Student --> CodigoEstudiante : codigo_estudiante
+Company --> RUC : ruc
+Company --> CompanyStatus : status
+Practice --> PracticeStatus : status
+
+@enduml

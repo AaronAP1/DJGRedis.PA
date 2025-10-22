@@ -1,0 +1,27 @@
+@startuml
+!define RECTANGLE class
+
+title Sistema de Gestión de Prácticas - Contexto del Sistema
+
+actor "Practicante" as prac #1a237e
+actor "Supervisor" as sup #1a237e  
+actor "Coordinador" as coord #1a237e
+actor "Secretaria" as sec #1a237e
+actor "Administrador" as admin #1a237e
+
+rectangle "Sistema de Gestión\nde Prácticas" as sys #0d47a1
+rectangle "Sistema de Email" as email #6c757d
+rectangle "API RENIEC" as reniec #6c757d
+rectangle "API SUNAT" as sunat #6c757d
+
+prac --> sys : Gestiona sus\nprácticas profesionales
+sup --> sys : Supervisa y evalúa\npracticantes  
+coord --> sys : Coordina y aprueba\nprácticas
+sec --> sys : Administra\ndocumentación
+admin --> sys : Administra\nel sistema
+
+sys --> email : Envía notificaciones\npor email
+sys --> reniec : Valida identidad\nde usuarios
+sys --> sunat : Valida información\nde empresas
+
+@enduml
