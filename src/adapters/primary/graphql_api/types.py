@@ -200,14 +200,15 @@ class CompanyType(DjangoObjectType):
         model = Company
         interfaces = (graphene.relay.Node,)
         filterset_class = CompanyFilter
-        fields = (
-            'id', 'ruc', 'razon_social', 'nombre_comercial', 'direccion',
-            'telefono', 'email', 'sector_economico',
-            'status', 'fecha_validacion', 'created_at', 'updated_at'
-        )
+        # Excluir campo con ñ para evitar conversión automática a camelCase inválido
+        exclude = ('tamaño_empresa',)
 
-    # Exponer nombre ASCII mapeando al campo Django con ñ
-    tamano_empresa = graphene.String(source='tamaño_empresa')
+    # Campo con nombre ASCII para evitar caracteres especiales en GraphQL
+    tamano_empresa = graphene.String(name='tamanoEmpresa')
+    
+    def resolve_tamano_empresa(self, info):
+        """Resuelve el tamaño de empresa desde el modelo."""
+        return self.tamaño_empresa
 
     nombre_para_mostrar = graphene.String()
     puede_recibir_practicantes = graphene.Boolean()
@@ -241,13 +242,15 @@ class SupervisorType(DjangoObjectType):
         model = Supervisor
         interfaces = (graphene.relay.Node,)
         filterset_class = SupervisorFilter
-        fields = (
-            'id', 'user', 'company', 'documento_tipo', 'documento_numero',
-            'cargo', 'telefono', 'created_at', 'updated_at'
-        )
+        # Excluir campo con ñ para evitar conversión automática a camelCase inválido
+        exclude = ('años_experiencia',)
 
-    # Exponer nombre ASCII mapeando al campo Django con ñ
-    anios_experiencia = graphene.Int(source='años_experiencia')
+    # Campo con nombre ASCII para evitar caracteres especiales en GraphQL
+    anios_experiencia = graphene.Int(name='aniosExperiencia')
+    
+    def resolve_anios_experiencia(self, info):
+        """Resuelve los años de experiencia desde el modelo."""
+        return self.años_experiencia
 
 
 class PracticeFilter(FilterSet):
@@ -322,17 +325,18 @@ class DocumentType(DjangoObjectType):
         model = Document
         interfaces = (graphene.relay.Node,)
         filterset_class = DocumentFilter
-        fields = (
-            'id', 'practice', 'tipo', 'nombre_archivo',
-            'mime_type', 'subido_por', 'aprobado', 'fecha_aprobacion',
-            'aprobado_por', 'created_at', 'updated_at'
-        )
+        # Excluir campo con ñ para evitar conversión automática a camelCase inválido
+        exclude = ('tamaño_bytes',)
 
-    # Exponer nombres ASCII mapeando a campos/propiedades con acentos
-    tamano_bytes = graphene.Int(source='tamaño_bytes')
-    tamano_legible = graphene.String()
+    # Campos con nombres ASCII para evitar caracteres especiales en GraphQL
+    tamano_bytes = graphene.Int(name='tamanoBytes')
+    tamano_legible = graphene.String(name='tamanoLegible')
     es_imagen = graphene.Boolean()
     es_pdf = graphene.Boolean()
+    
+    def resolve_tamano_bytes(self, info):
+        """Resuelve el tamaño en bytes desde el modelo."""
+        return self.tamaño_bytes
     
     def resolve_tamano_legible(self, info):
         """Resuelve el tamaño legible."""

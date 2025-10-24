@@ -100,6 +100,15 @@ def can_delete_user(user, target_user) -> bool:
 # VERIFICADORES DE PERMISOS SOBRE ESTUDIANTES
 # ============================================================================
 
+def can_create_student(user) -> bool:
+    """Verifica si el usuario puede crear estudiantes."""
+    if not user or not user.is_authenticated:
+        return False
+    
+    # Solo staff puede crear estudiantes
+    return is_staff(user)
+
+
 def can_view_student(user, student) -> bool:
     """Verifica si el usuario puede ver información del estudiante."""
     if not user or not user.is_authenticated:
@@ -149,6 +158,15 @@ def can_delete_student(user, student) -> bool:
 # VERIFICADORES DE PERMISOS SOBRE EMPRESAS
 # ============================================================================
 
+def can_create_company(user) -> bool:
+    """Verifica si el usuario puede crear empresas."""
+    if not user or not user.is_authenticated:
+        return False
+    
+    # Staff y supervisores pueden crear empresas
+    return is_staff(user) or is_supervisor(user)
+
+
 def can_view_company(user, company) -> bool:
     """Verifica si el usuario puede ver información de la empresa."""
     if not user or not user.is_authenticated:
@@ -194,8 +212,46 @@ def can_validate_company(user) -> bool:
 
 
 # ============================================================================
+# VERIFICADORES DE PERMISOS SOBRE SUPERVISORES
+# ============================================================================
+
+def can_create_supervisor(user) -> bool:
+    """Verifica si el usuario puede crear supervisores."""
+    if not user or not user.is_authenticated:
+        return False
+    
+    # Solo staff puede crear supervisores
+    return is_staff(user)
+
+
+def can_update_supervisor(user, supervisor) -> bool:
+    """Verifica si el usuario puede actualizar el supervisor."""
+    if not user or not user.is_authenticated:
+        return False
+    
+    # Staff puede actualizar
+    if is_staff(user):
+        return True
+    
+    # Supervisor puede actualizar su propio perfil
+    if hasattr(supervisor, 'user') and supervisor.user == user:
+        return True
+    
+    return False
+
+
+# ============================================================================
 # VERIFICADORES DE PERMISOS SOBRE PRÁCTICAS
 # ============================================================================
+
+def can_create_practice(user) -> bool:
+    """Verifica si el usuario puede crear prácticas."""
+    if not user or not user.is_authenticated:
+        return False
+    
+    # Staff y practicantes pueden crear prácticas
+    return is_staff(user) or is_practicante(user)
+
 
 def can_view_practice(user, practice) -> bool:
     """Verifica si el usuario puede ver la práctica."""
@@ -439,3 +495,55 @@ def has_any_role(user, roles: list) -> bool:
 def require_authentication(user) -> bool:
     """Verifica que el usuario esté autenticado."""
     return bool(user and user.is_authenticated)
+
+
+# ============================================================================
+# VERIFICADORES DE PERMISOS PARA LISTADOS/COLECCIONES
+# ============================================================================
+
+def can_view_users(user) -> bool:
+    """Verifica si el usuario puede ver el listado de usuarios."""
+    if not user or not user.is_authenticated:
+        return False
+    # Solo staff puede ver listado de usuarios
+    return is_staff(user)
+
+
+def can_view_students(user) -> bool:
+    """Verifica si el usuario puede ver el listado de estudiantes."""
+    if not user or not user.is_authenticated:
+        return False
+    # Staff puede ver todos, estudiantes solo se ven a sí mismos
+    return is_staff(user) or is_practicante(user)
+
+
+def can_view_companies(user) -> bool:
+    """Verifica si el usuario puede ver el listado de empresas."""
+    if not user or not user.is_authenticated:
+        return False
+    # Todos los autenticados pueden ver empresas
+    return True
+
+
+def can_view_supervisors(user) -> bool:
+    """Verifica si el usuario puede ver el listado de supervisores."""
+    if not user or not user.is_authenticated:
+        return False
+    # Todos los autenticados pueden ver supervisores
+    return True
+
+
+def can_view_practices(user) -> bool:
+    """Verifica si el usuario puede ver el listado de prácticas."""
+    if not user or not user.is_authenticated:
+        return False
+    # Todos los autenticados pueden ver prácticas (filtradas según rol)
+    return True
+
+
+def can_view_documents(user) -> bool:
+    """Verifica si el usuario puede ver el listado de documentos."""
+    if not user or not user.is_authenticated:
+        return False
+    # Todos los autenticados pueden ver documentos (filtrados según permisos)
+    return True

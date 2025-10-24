@@ -4,7 +4,7 @@
 
 Este documento describe todas las mutations GraphQL disponibles en el sistema. Las mutations están organizadas por entidad y incluyen validaciones, permisos y notificaciones automáticas.
 
-**Archivo**: `src/adapters/primary/graphql_api/mutations_complete.py`
+**Archivo**: `src/adapters/primary/graphql_api/mutations.py`
 
 **Total de Mutations**: 30+
 

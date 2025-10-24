@@ -1,11 +1,13 @@
 """
-Decoradores para sanitización automática de datos de entrada.
+Decoradores para sanitización automática de datos de entrada y control de permisos.
 """
 
 from functools import wraps
 from typing import List, Dict, Any, Callable
+from graphql import GraphQLError
 from .sanitizers import validate_and_sanitize_input, sanitize_text_field, sanitize_rich_text
 from .logging import get_client_ip, get_endpoint_info
+from .permission_helpers import is_staff, is_administrador, is_coordinador, is_secretaria
 
 
 def sanitize_mutation_input(text_fields: List[str] = None, 
@@ -95,5 +97,152 @@ def sanitize_serializer_data(text_fields: List[str] = None,
             )
             
             return func(self, sanitized_data)
+        return wrapper
+    return decorator
+
+
+# ============================================================================
+# DECORADORES DE PERMISOS PARA GRAPHQL
+# ============================================================================
+
+def staff_required(func: Callable) -> Callable:
+    """
+    Decorador que requiere que el usuario sea staff (Admin, Coordinador o Secretaria).
+    
+    Usage:
+        @staff_required
+        def mutate(root, info, ...):
+            # Solo staff puede ejecutar esto
+            pass
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # El segundo argumento es 'info' en GraphQL resolvers
+        if len(args) >= 2 and hasattr(args[1], 'context'):
+            info = args[1]
+            user = info.context.user
+            
+            if not user or not user.is_authenticated:
+                raise GraphQLError('Se requiere autenticación')
+            
+            if not is_staff(user):
+                raise GraphQLError('Se requieren permisos de staff (Admin/Coordinador/Secretaria)')
+            
+            return func(*args, **kwargs)
+        
+        raise GraphQLError('Contexto inválido')
+    return wrapper
+
+
+def administrador_required(func: Callable) -> Callable:
+    """
+    Decorador que requiere que el usuario sea ADMINISTRADOR.
+    
+    Usage:
+        @administrador_required
+        def mutate(root, info, ...):
+            # Solo administradores pueden ejecutar esto
+            pass
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if len(args) >= 2 and hasattr(args[1], 'context'):
+            info = args[1]
+            user = info.context.user
+            
+            if not user or not user.is_authenticated:
+                raise GraphQLError('Se requiere autenticación')
+            
+            if not is_administrador(user):
+                raise GraphQLError('Se requieren permisos de ADMINISTRADOR')
+            
+            return func(*args, **kwargs)
+        
+        raise GraphQLError('Contexto inválido')
+    return wrapper
+
+
+def coordinador_required(func: Callable) -> Callable:
+    """
+    Decorador que requiere que el usuario sea COORDINADOR.
+    
+    Usage:
+        @coordinador_required
+        def mutate(root, info, ...):
+            # Solo coordinadores pueden ejecutar esto
+            pass
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if len(args) >= 2 and hasattr(args[1], 'context'):
+            info = args[1]
+            user = info.context.user
+            
+            if not user or not user.is_authenticated:
+                raise GraphQLError('Se requiere autenticación')
+            
+            if not is_coordinador(user):
+                raise GraphQLError('Se requieren permisos de COORDINADOR')
+            
+            return func(*args, **kwargs)
+        
+        raise GraphQLError('Contexto inválido')
+    return wrapper
+
+
+def secretaria_required(func: Callable) -> Callable:
+    """
+    Decorador que requiere que el usuario sea SECRETARIA.
+    
+    Usage:
+        @secretaria_required
+        def mutate(root, info, ...):
+            # Solo secretarias pueden ejecutar esto
+            pass
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if len(args) >= 2 and hasattr(args[1], 'context'):
+            info = args[1]
+            user = info.context.user
+            
+            if not user or not user.is_authenticated:
+                raise GraphQLError('Se requiere autenticación')
+            
+            if not is_secretaria(user):
+                raise GraphQLError('Se requieren permisos de SECRETARIA')
+            
+            return func(*args, **kwargs)
+        
+        raise GraphQLError('Contexto inválido')
+    return wrapper
+
+
+def role_required(*roles):
+    """
+    Decorador que requiere que el usuario tenga uno de los roles especificados.
+    
+    Usage:
+        @role_required('COORDINADOR', 'ADMINISTRADOR')
+        def mutate(root, info, ...):
+            # Solo coordinadores o administradores pueden ejecutar esto
+            pass
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if len(args) >= 2 and hasattr(args[1], 'context'):
+                info = args[1]
+                user = info.context.user
+                
+                if not user or not user.is_authenticated:
+                    raise GraphQLError('Se requiere autenticación')
+                
+                if not hasattr(user, 'role') or user.role not in roles:
+                    raise GraphQLError(f'Se requiere uno de estos roles: {", ".join(roles)}')
+                
+                return func(*args, **kwargs)
+            
+            raise GraphQLError('Contexto inválido')
         return wrapper
     return decorator

@@ -1,669 +1,1338 @@
 """
-Queries GraphQL para el sistema de gestión de prácticas profesionales.
+Queries GraphQL Avanzadas para el Sistema de Gestión de Prácticas Profesionales.
+
+Este módulo implementa queries GraphQL con:
+- Filtros complejos y búsquedas
+- Paginación
+- Resolvers optimizados
+- Agregaciones y estadísticas
+- Permisos basados en roles
 """
 
 import graphene
-from graphql_jwt.decorators import login_required, permission_required
+from graphene_django.filter import DjangoFilterConnectionField
+from graphql_jwt.decorators import login_required
 from django.contrib.auth import get_user_model
+from django.db.models import Q, Count, Avg, Sum, F, Value, CharField
+from django.db.models.functions import Concat
+from datetime import datetime, timedelta
 
 from .types import (
-    UserType, StudentType, CompanyType, PracticeType, DocumentType, NotificationType,
-    PermissionType, RoleType, UserPermissionType, UserPermissionsInfo, AvatarType, EmpresaRucType,
-    SupervisorType
+    UserType, StudentType, CompanyType, SupervisorType,
+    PracticeType, DocumentType, NotificationType
 )
 from src.adapters.secondary.database.models import (
-    Student, Company, Supervisor, Practice, Document, Notification,
-    Permission, Role, UserPermission, Avatar
+    Student, Company, Supervisor, Practice, Document, Notification
+)
+from src.infrastructure.security.permission_helpers import (
+    can_view_users, can_view_students, can_view_companies,
+    can_view_supervisors, can_view_practices, can_view_documents
 )
 
 User = get_user_model()
 
 
+# ============================================================================
+# TIPOS AUXILIARES PARA ESTADÍSTICAS Y AGREGACIONES
+# ============================================================================
+
+class PracticeStatisticsType(graphene.ObjectType):
+    """Estadísticas de prácticas."""
+    total = graphene.Int()
+    draft = graphene.Int()
+    pending = graphene.Int()
+    approved = graphene.Int()
+    in_progress = graphene.Int()
+    completed = graphene.Int()
+    cancelled = graphene.Int()
+    average_hours = graphene.Float()
+    average_grade = graphene.Float()
+
+
+class StudentStatisticsType(graphene.ObjectType):
+    """Estadísticas de estudiantes."""
+    total = graphene.Int()
+    eligible = graphene.Int()
+    with_practice = graphene.Int()
+    without_practice = graphene.Int()
+    average_gpa = graphene.Float()
+    by_semester = graphene.JSONString()
+
+
+class CompanyStatisticsType(graphene.ObjectType):
+    """Estadísticas de empresas."""
+    total = graphene.Int()
+    active = graphene.Int()
+    pending = graphene.Int()
+    suspended = graphene.Int()
+    blacklisted = graphene.Int()
+    by_sector = graphene.JSONString()
+    with_practices = graphene.Int()
+
+
+class DashboardStatisticsType(graphene.ObjectType):
+    """Estadísticas completas del dashboard."""
+    practices = graphene.Field(PracticeStatisticsType)
+    students = graphene.Field(StudentStatisticsType)
+    companies = graphene.Field(CompanyStatisticsType)
+    recent_activities = graphene.List(graphene.JSONString)
+
+
+class PaginationType(graphene.ObjectType):
+    """Información de paginación."""
+    page = graphene.Int()
+    page_size = graphene.Int()
+    total_count = graphene.Int()
+    total_pages = graphene.Int()
+    has_next = graphene.Boolean()
+    has_previous = graphene.Boolean()
+
+
+class UserListType(graphene.ObjectType):
+    """Lista paginada de usuarios."""
+    items = graphene.List(UserType)
+    pagination = graphene.Field(PaginationType)
+
+
+class StudentListType(graphene.ObjectType):
+    """Lista paginada de estudiantes."""
+    items = graphene.List(StudentType)
+    pagination = graphene.Field(PaginationType)
+
+
+class CompanyListType(graphene.ObjectType):
+    """Lista paginada de empresas."""
+    items = graphene.List(CompanyType)
+    pagination = graphene.Field(PaginationType)
+
+
+class PracticeListType(graphene.ObjectType):
+    """Lista paginada de prácticas."""
+    items = graphene.List(PracticeType)
+    pagination = graphene.Field(PaginationType)
+
+
+# ============================================================================
+# QUERY CLASS PRINCIPAL
+# ============================================================================
+
 class Query(graphene.ObjectType):
-    """Queries principales del sistema."""
+    """
+    Queries GraphQL avanzadas del sistema.
     
-    # ===== USUARIOS =====
-    users = graphene.List(UserType)
-    user = graphene.Field(UserType, id=graphene.ID(required=True))
-    me = graphene.Field(UserType)
+    Incluye:
+    - Queries básicas (single item)
+    - Queries de lista con filtros
+    - Búsquedas avanzadas
+    - Paginación
+    - Estadísticas y agregaciones
+    """
     
-    # ===== ESTUDIANTES =====
-    students = graphene.List(StudentType)
-    student = graphene.Field(StudentType, id=graphene.ID(required=True))
-    eligible_students = graphene.List(StudentType)
+    # ========================================================================
+    # USER QUERIES
+    # ========================================================================
     
-    # ===== EMPRESAS =====
-    companies = graphene.List(CompanyType)
-    company = graphene.Field(CompanyType, id=graphene.ID(required=True))
-    active_companies = graphene.List(CompanyType)
+    # Queries básicas
+    me = graphene.Field(UserType, description="Usuario autenticado actual")
+    user = graphene.Field(
+        UserType,
+        id=graphene.ID(required=True),
+        description="Buscar usuario por ID"
+    )
     
-    # ===== SUPERVISORES =====
-    supervisors = graphene.List(SupervisorType)
-    supervisor = graphene.Field(SupervisorType, id=graphene.ID(required=True))
-    company_supervisors = graphene.List(SupervisorType, company_id=graphene.ID(required=True))
+    # Queries de lista
+    users = graphene.Field(
+        UserListType,
+        page=graphene.Int(default_value=1),
+        page_size=graphene.Int(default_value=20),
+        role=graphene.String(),
+        is_active=graphene.Boolean(),
+        search=graphene.String(),
+        description="Lista paginada de usuarios con filtros"
+    )
     
-    # ===== PRÁCTICAS =====
-    practices = graphene.List(PracticeType)
-    practice = graphene.Field(PracticeType, id=graphene.ID(required=True))
-    my_practices = graphene.List(PracticeType)
-    practices_by_status = graphene.List(PracticeType, status=graphene.String(required=True))
+    users_by_role = graphene.List(
+        UserType,
+        role=graphene.String(required=True),
+        description="Usuarios filtrados por rol"
+    )
     
-    # ===== DOCUMENTOS =====
-    documents = graphene.List(DocumentType)
-    document = graphene.Field(DocumentType, id=graphene.ID(required=True))
-    practice_documents = graphene.List(DocumentType, practice_id=graphene.ID(required=True))
+    search_users = graphene.List(
+        UserType,
+        query=graphene.String(required=True),
+        description="Búsqueda de usuarios por nombre o email"
+    )
     
-    # ===== NOTIFICACIONES =====
-    notifications = graphene.List(NotificationType)
-    my_notifications = graphene.List(NotificationType)
-    unread_notifications = graphene.List(NotificationType)
+    # ========================================================================
+    # STUDENT QUERIES
+    # ========================================================================
     
-    # ===== ESTADÍSTICAS =====
-    statistics = graphene.Field(graphene.JSONString)
+    # Queries básicas
+    student = graphene.Field(
+        StudentType,
+        id=graphene.ID(),
+        codigo=graphene.String(),
+        description="Buscar estudiante por ID o código"
+    )
     
-    # ===== ROLES Y PERMISOS =====
-    permissions = graphene.List(PermissionType, module=graphene.String())
-    permission = graphene.Field(PermissionType, id=graphene.ID(required=True))
-    roles = graphene.List(RoleType, is_active=graphene.Boolean())
-    role = graphene.Field(RoleType, id=graphene.ID(required=True))
-    user_permissions_info = graphene.Field(UserPermissionsInfo, user_id=graphene.ID(required=True))
-    my_permissions_info = graphene.Field(UserPermissionsInfo)
+    my_student_profile = graphene.Field(
+        StudentType,
+        description="Perfil de estudiante del usuario actual"
+    )
     
-    # ===== AVATARES =====
-    avatars_by_role = graphene.List(AvatarType)
-    list_avatars = graphene.List(AvatarType, role=graphene.String())
+    # Queries de lista
+    students = graphene.Field(
+        StudentListType,
+        page=graphene.Int(default_value=1),
+        page_size=graphene.Int(default_value=20),
+        semestre=graphene.Int(),
+        carrera=graphene.String(),
+        search=graphene.String(),
+        order_by=graphene.String(default_value="-created_at"),
+        description="Lista paginada de estudiantes con filtros"
+    )
     
-    # ===== BUSCAR EMPRESA POR RUC =====
-    buscar_empresa_ruc = graphene.Field(EmpresaRucType, ruc=graphene.String(required=True))
-
-    # ===== RESOLVERS USUARIOS =====
+    eligible_students = graphene.List(
+        StudentType,
+        description="Estudiantes elegibles para prácticas (semestre >= 6, promedio >= 12)"
+    )
+    
+    students_without_practice = graphene.List(
+        StudentType,
+        description="Estudiantes sin práctica asignada"
+    )
+    
+    search_students = graphene.List(
+        StudentType,
+        query=graphene.String(required=True),
+        description="Búsqueda de estudiantes por nombre, código o carrera"
+    )
+    
+    # ========================================================================
+    # COMPANY QUERIES
+    # ========================================================================
+    
+    # Queries básicas
+    company = graphene.Field(
+        CompanyType,
+        id=graphene.ID(),
+        ruc=graphene.String(),
+        description="Buscar empresa por ID o RUC"
+    )
+    
+    # Queries de lista
+    companies = graphene.Field(
+        CompanyListType,
+        page=graphene.Int(default_value=1),
+        page_size=graphene.Int(default_value=20),
+        status=graphene.String(),
+        sector=graphene.String(),
+        search=graphene.String(),
+        order_by=graphene.String(default_value="-created_at"),
+        description="Lista paginada de empresas con filtros"
+    )
+    
+    active_companies = graphene.List(
+        CompanyType,
+        description="Empresas activas que pueden recibir practicantes"
+    )
+    
+    pending_validation_companies = graphene.List(
+        CompanyType,
+        description="Empresas pendientes de validación"
+    )
+    
+    companies_by_sector = graphene.List(
+        CompanyType,
+        sector=graphene.String(required=True),
+        description="Empresas filtradas por sector económico"
+    )
+    
+    search_companies = graphene.List(
+        CompanyType,
+        query=graphene.String(required=True),
+        description="Búsqueda de empresas por nombre, RUC o sector"
+    )
+    
+    # ========================================================================
+    # SUPERVISOR QUERIES
+    # ========================================================================
+    
+    # Queries básicas
+    supervisor = graphene.Field(
+        SupervisorType,
+        id=graphene.ID(required=True),
+        description="Buscar supervisor por ID"
+    )
+    
+    my_supervisor_profile = graphene.Field(
+        SupervisorType,
+        description="Perfil de supervisor del usuario actual"
+    )
+    
+    # Queries de lista
+    supervisors = graphene.List(
+        SupervisorType,
+        company_id=graphene.ID(),
+        description="Lista de supervisores (opcionalmente filtrado por empresa)"
+    )
+    
+    company_supervisors = graphene.List(
+        SupervisorType,
+        company_id=graphene.ID(required=True),
+        description="Supervisores de una empresa específica"
+    )
+    
+    available_supervisors = graphene.List(
+        SupervisorType,
+        company_id=graphene.ID(required=True),
+        description="Supervisores disponibles de una empresa (con capacidad)"
+    )
+    
+    # ========================================================================
+    # PRACTICE QUERIES
+    # ========================================================================
+    
+    # Queries básicas
+    practice = graphene.Field(
+        PracticeType,
+        id=graphene.ID(required=True),
+        description="Buscar práctica por ID"
+    )
+    
+    # Queries de lista
+    practices = graphene.Field(
+        PracticeListType,
+        page=graphene.Int(default_value=1),
+        page_size=graphene.Int(default_value=20),
+        status=graphene.String(),
+        student_id=graphene.ID(),
+        company_id=graphene.ID(),
+        supervisor_id=graphene.ID(),
+        fecha_inicio_from=graphene.Date(),
+        fecha_inicio_to=graphene.Date(),
+        search=graphene.String(),
+        order_by=graphene.String(default_value="-created_at"),
+        description="Lista paginada de prácticas con filtros"
+    )
+    
+    my_practices = graphene.List(
+        PracticeType,
+        description="Prácticas del usuario actual (estudiante o supervisor)"
+    )
+    
+    practices_by_status = graphene.List(
+        PracticeType,
+        status=graphene.String(required=True),
+        description="Prácticas filtradas por estado"
+    )
+    
+    student_practices = graphene.List(
+        PracticeType,
+        student_id=graphene.ID(required=True),
+        description="Prácticas de un estudiante específico"
+    )
+    
+    company_practices = graphene.List(
+        PracticeType,
+        company_id=graphene.ID(required=True),
+        description="Prácticas de una empresa específica"
+    )
+    
+    supervisor_practices = graphene.List(
+        PracticeType,
+        supervisor_id=graphene.ID(required=True),
+        description="Prácticas de un supervisor específico"
+    )
+    
+    active_practices = graphene.List(
+        PracticeType,
+        description="Prácticas activas (APPROVED o IN_PROGRESS)"
+    )
+    
+    pending_approval_practices = graphene.List(
+        PracticeType,
+        description="Prácticas pendientes de aprobación"
+    )
+    
+    completed_practices = graphene.List(
+        PracticeType,
+        year=graphene.Int(),
+        description="Prácticas completadas (opcionalmente por año)"
+    )
+    
+    # ========================================================================
+    # DOCUMENT QUERIES
+    # ========================================================================
+    
+    # Queries básicas
+    document = graphene.Field(
+        DocumentType,
+        id=graphene.ID(required=True),
+        description="Buscar documento por ID"
+    )
+    
+    # Queries de lista
+    documents = graphene.List(
+        DocumentType,
+        practice_id=graphene.ID(),
+        tipo=graphene.String(),
+        aprobado=graphene.Boolean(),
+        description="Lista de documentos con filtros"
+    )
+    
+    practice_documents = graphene.List(
+        DocumentType,
+        practice_id=graphene.ID(required=True),
+        description="Documentos de una práctica específica"
+    )
+    
+    pending_approval_documents = graphene.List(
+        DocumentType,
+        description="Documentos pendientes de aprobación"
+    )
+    
+    my_documents = graphene.List(
+        DocumentType,
+        description="Documentos subidos por el usuario actual"
+    )
+    
+    # ========================================================================
+    # NOTIFICATION QUERIES
+    # ========================================================================
+    
+    # Queries de lista
+    my_notifications = graphene.List(
+        NotificationType,
+        leida=graphene.Boolean(),
+        tipo=graphene.String(),
+        limit=graphene.Int(default_value=50),
+        description="Notificaciones del usuario actual"
+    )
+    
+    unread_notifications = graphene.List(
+        NotificationType,
+        description="Notificaciones no leídas del usuario actual"
+    )
+    
+    unread_count = graphene.Int(
+        description="Cantidad de notificaciones no leídas"
+    )
+    
+    # ========================================================================
+    # STATISTICS & DASHBOARD QUERIES
+    # ========================================================================
+    
+    dashboard_statistics = graphene.Field(
+        DashboardStatisticsType,
+        description="Estadísticas completas del dashboard"
+    )
+    
+    practice_statistics = graphene.Field(
+        PracticeStatisticsType,
+        year=graphene.Int(),
+        description="Estadísticas de prácticas (opcionalmente por año)"
+    )
+    
+    student_statistics = graphene.Field(
+        StudentStatisticsType,
+        description="Estadísticas de estudiantes"
+    )
+    
+    company_statistics = graphene.Field(
+        CompanyStatisticsType,
+        description="Estadísticas de empresas"
+    )
+    
+    # ========================================================================
+    # RESOLVERS - USER
+    # ========================================================================
+    
     @login_required
-    def resolve_users(self, info, **kwargs):
-        """Resuelve la lista de usuarios."""
-        user = info.context.user
-        # Solo ADMINISTRADOR puede ver listado y no debe verse a sí mismo
-        if user.role == 'ADMINISTRADOR':
-            return User.objects.exclude(id=user.id).order_by('created_at')
-        
-        # Lanzar error claro para usuarios sin permisos
-        from graphql import GraphQLError
-        raise GraphQLError(
-            "No tienes permisos para ver la lista de usuarios",
-            extensions={
-                'code': 'INSUFFICIENT_PERMISSIONS',
-                'required_role': 'ADMINISTRADOR',
-                'current_role': user.role
-            }
-        )
-
+    def resolve_me(self, info):
+        """Resolver: Usuario actual."""
+        return info.context.user
+    
     @login_required
     def resolve_user(self, info, id):
-        """Resuelve un usuario específico."""
-        user = info.context.user
-        if user.role in ['COORDINADOR', 'ADMINISTRADOR']:
-            try:
-                return User.objects.get(id=id)
-            except User.DoesNotExist:
-                return None
-        return None
-
-    def resolve_me(self, info):
-        """Resuelve el usuario actual."""
-        # Verificar si hay usuario autenticado
-        if not hasattr(info.context, 'user') or not info.context.user.is_authenticated:
-            from graphql import GraphQLError
-            raise GraphQLError(
-                "No ha iniciado sesión. Por favor, inicie sesión para acceder a su perfil.",
-                extensions={
-                    'code': 'UNAUTHENTICATED',
-                    'action': 'LOGIN_REQUIRED'
-                }
+        """Resolver: Usuario por ID."""
+        current_user = info.context.user
+        
+        # Solo staff puede ver otros usuarios
+        if not can_view_users(current_user):
+            return None
+        
+        try:
+            return User.objects.get(id=id)
+        except User.DoesNotExist:
+            return None
+    
+    @login_required
+    def resolve_users(self, info, page=1, page_size=20, role=None, is_active=None, search=None):
+        """Resolver: Lista paginada de usuarios."""
+        current_user = info.context.user
+        
+        if not can_view_users(current_user):
+            return UserListType(items=[], pagination=None)
+        
+        # Query base
+        queryset = User.objects.all()
+        
+        # Filtros
+        if role:
+            queryset = queryset.filter(role=role)
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active)
+        if search:
+            queryset = queryset.filter(
+                Q(email__icontains=search) |
+                Q(first_name__icontains=search) |
+                Q(last_name__icontains=search) |
+                Q(username__icontains=search)
             )
         
-        return info.context.user
-
-    # ===== RESOLVERS ESTUDIANTES =====
+        # Ordenamiento
+        queryset = queryset.order_by('-created_at')
+        
+        # Paginación
+        total_count = queryset.count()
+        total_pages = (total_count + page_size - 1) // page_size
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = list(queryset[start:end])
+        
+        pagination = PaginationType(
+            page=page,
+            page_size=page_size,
+            total_count=total_count,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_previous=page > 1
+        )
+        
+        return UserListType(items=items, pagination=pagination)
+    
     @login_required
-    def resolve_students(self, info, **kwargs):
-        """Resuelve la lista de estudiantes."""
-        user = info.context.user
-        if user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
-            return Student.objects.select_related('user').all()
-        elif user.role == 'SUPERVISOR':
-            # Supervisores pueden ver estudiantes de sus empresas
-            supervisor = getattr(user, 'supervisor_profile', None)
-            if supervisor:
-                return Student.objects.filter(
-                    practices__company=supervisor.company
-                ).distinct()
-        return Student.objects.none()
-
+    def resolve_users_by_role(self, info, role):
+        """Resolver: Usuarios por rol."""
+        current_user = info.context.user
+        
+        if not can_view_users(current_user):
+            return []
+        
+        return User.objects.filter(role=role, is_active=True).order_by('first_name', 'last_name')
+    
     @login_required
-    def resolve_student(self, info, id):
-        """Resuelve un estudiante específico."""
-        user = info.context.user
+    def resolve_search_users(self, info, query):
+        """Resolver: Búsqueda de usuarios."""
+        current_user = info.context.user
+        
+        if not can_view_users(current_user):
+            return []
+        
+        return User.objects.filter(
+            Q(email__icontains=query) |
+            Q(first_name__icontains=query) |
+            Q(last_name__icontains=query) |
+            Q(username__icontains=query)
+        ).order_by('first_name', 'last_name')[:20]
+    
+    # ========================================================================
+    # RESOLVERS - STUDENT
+    # ========================================================================
+    
+    @login_required
+    def resolve_student(self, info, id=None, codigo=None):
+        """Resolver: Estudiante por ID o código."""
+        current_user = info.context.user
+        
         try:
-            student = Student.objects.select_related('user').get(id=id)
+            if id:
+                student = Student.objects.select_related('user').get(id=id)
+            elif codigo:
+                student = Student.objects.select_related('user').get(codigo_estudiante=codigo)
+            else:
+                return None
             
             # Verificar permisos
-            if user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
+            if can_view_students(current_user):
                 return student
-            elif user.role == 'PRACTICANTE' and user.id == student.user.id:
+            elif current_user.role == 'PRACTICANTE' and student.user.id == current_user.id:
                 return student
-            elif user.role == 'SUPERVISOR':
-                supervisor = getattr(user, 'supervisor_profile', None)
-                if supervisor and student.practices.filter(company=supervisor.company).exists():
+            elif current_user.role == 'SUPERVISOR':
+                # Supervisor puede ver estudiantes de sus prácticas
+                supervisor = getattr(current_user, 'supervisor_profile', None)
+                if supervisor and student.practices.filter(supervisor=supervisor).exists():
                     return student
+            
         except Student.DoesNotExist:
             pass
+        
         return None
-
+    
+    @login_required
+    def resolve_my_student_profile(self, info):
+        """Resolver: Perfil de estudiante del usuario actual."""
+        current_user = info.context.user
+        
+        if current_user.role != 'PRACTICANTE':
+            return None
+        
+        return getattr(current_user, 'student_profile', None)
+    
+    @login_required
+    def resolve_students(self, info, page=1, page_size=20, semestre=None, carrera=None, search=None, order_by="-created_at"):
+        """Resolver: Lista paginada de estudiantes."""
+        current_user = info.context.user
+        
+        if not can_view_students(current_user):
+            return StudentListType(items=[], pagination=None)
+        
+        # Query base
+        queryset = Student.objects.select_related('user').all()
+        
+        # Filtros
+        if semestre:
+            queryset = queryset.filter(semestre_actual=semestre)
+        if carrera:
+            queryset = queryset.filter(carrera__icontains=carrera)
+        if search:
+            queryset = queryset.filter(
+                Q(codigo_estudiante__icontains=search) |
+                Q(user__first_name__icontains=search) |
+                Q(user__last_name__icontains=search) |
+                Q(carrera__icontains=search)
+            )
+        
+        # Ordenamiento
+        queryset = queryset.order_by(order_by)
+        
+        # Paginación
+        total_count = queryset.count()
+        total_pages = (total_count + page_size - 1) // page_size
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = list(queryset[start:end])
+        
+        pagination = PaginationType(
+            page=page,
+            page_size=page_size,
+            total_count=total_count,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_previous=page > 1
+        )
+        
+        return StudentListType(items=items, pagination=pagination)
+    
     @login_required
     def resolve_eligible_students(self, info):
-        """Resuelve estudiantes elegibles para prácticas."""
-        user = info.context.user
-        if user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
-            return Student.objects.filter(
-                semestre_actual__gte=6,
-                promedio_ponderado__gte=12.0
-            ).select_related('user')
-        return Student.objects.none()
-
-    # ===== RESOLVERS EMPRESAS =====
+        """Resolver: Estudiantes elegibles para prácticas."""
+        current_user = info.context.user
+        
+        if not can_view_students(current_user):
+            return []
+        
+        return Student.objects.filter(
+            semestre_actual__gte=6,
+            promedio_ponderado__gte=12.0,
+            user__is_active=True
+        ).select_related('user').order_by('-promedio_ponderado')
+    
     @login_required
-    def resolve_companies(self, info, **kwargs):
-        """Resuelve la lista de empresas."""
-        user = info.context.user
-        if user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
-            return Company.objects.all()
-        elif user.role == 'SUPERVISOR':
-            supervisor = getattr(user, 'supervisor_profile', None)
-            if supervisor:
-                return Company.objects.filter(id=supervisor.company.id)
-        return Company.objects.filter(status='ACTIVE')
-
+    def resolve_students_without_practice(self, info):
+        """Resolver: Estudiantes sin práctica."""
+        current_user = info.context.user
+        
+        if not can_view_students(current_user):
+            return []
+        
+        # Estudiantes elegibles que no tienen prácticas activas
+        return Student.objects.filter(
+            semestre_actual__gte=6,
+            promedio_ponderado__gte=12.0,
+            user__is_active=True
+        ).exclude(
+            practices__status__in=['APPROVED', 'IN_PROGRESS']
+        ).select_related('user').order_by('-promedio_ponderado')
+    
     @login_required
-    def resolve_company(self, info, id):
-        """Resuelve una empresa específica."""
+    def resolve_search_students(self, info, query):
+        """Resolver: Búsqueda de estudiantes."""
+        current_user = info.context.user
+        
+        if not can_view_students(current_user):
+            return []
+        
+        return Student.objects.filter(
+            Q(codigo_estudiante__icontains=query) |
+            Q(user__first_name__icontains=query) |
+            Q(user__last_name__icontains=query) |
+            Q(carrera__icontains=query)
+        ).select_related('user').order_by('user__first_name', 'user__last_name')[:20]
+    
+    # ========================================================================
+    # RESOLVERS - COMPANY
+    # ========================================================================
+    
+    @login_required
+    def resolve_company(self, info, id=None, ruc=None):
+        """Resolver: Empresa por ID o RUC."""
         try:
-            return Company.objects.get(id=id)
+            if id:
+                return Company.objects.get(id=id)
+            elif ruc:
+                return Company.objects.get(ruc=ruc)
         except Company.DoesNotExist:
-            return None
-
+            pass
+        
+        return None
+    
+    @login_required
+    def resolve_companies(self, info, page=1, page_size=20, status=None, sector=None, search=None, order_by="-created_at"):
+        """Resolver: Lista paginada de empresas."""
+        current_user = info.context.user
+        
+        # Query base
+        queryset = Company.objects.all()
+        
+        # Si no es staff, solo ver empresas activas
+        if not can_view_companies(current_user):
+            queryset = queryset.filter(status='ACTIVE')
+        
+        # Filtros
+        if status:
+            queryset = queryset.filter(status=status)
+        if sector:
+            queryset = queryset.filter(sector_economico__icontains=sector)
+        if search:
+            queryset = queryset.filter(
+                Q(razon_social__icontains=search) |
+                Q(nombre_comercial__icontains=search) |
+                Q(ruc__icontains=search) |
+                Q(sector_economico__icontains=search)
+            )
+        
+        # Ordenamiento
+        queryset = queryset.order_by(order_by)
+        
+        # Paginación
+        total_count = queryset.count()
+        total_pages = (total_count + page_size - 1) // page_size
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = list(queryset[start:end])
+        
+        pagination = PaginationType(
+            page=page,
+            page_size=page_size,
+            total_count=total_count,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_previous=page > 1
+        )
+        
+        return CompanyListType(items=items, pagination=pagination)
+    
     @login_required
     def resolve_active_companies(self, info):
-        """Resuelve empresas activas."""
-        return Company.objects.filter(status='ACTIVE')
-
-    # ===== RESOLVERS SUPERVISORES =====
+        """Resolver: Empresas activas."""
+        return Company.objects.filter(status='ACTIVE').order_by('razon_social')
+    
     @login_required
-    def resolve_supervisors(self, info, **kwargs):
-        """Resuelve la lista de supervisores."""
-        user = info.context.user
-        if user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
-            return Supervisor.objects.select_related('user', 'company').all()
-        return Supervisor.objects.none()
-
+    def resolve_pending_validation_companies(self, info):
+        """Resolver: Empresas pendientes de validación."""
+        current_user = info.context.user
+        
+        if current_user.role not in ['COORDINADOR', 'ADMINISTRADOR']:
+            return []
+        
+        return Company.objects.filter(status='PENDING_VALIDATION').order_by('-created_at')
+    
+    @login_required
+    def resolve_companies_by_sector(self, info, sector):
+        """Resolver: Empresas por sector."""
+        return Company.objects.filter(
+            sector_economico__icontains=sector,
+            status='ACTIVE'
+        ).order_by('razon_social')
+    
+    @login_required
+    def resolve_search_companies(self, info, query):
+        """Resolver: Búsqueda de empresas."""
+        return Company.objects.filter(
+            Q(razon_social__icontains=query) |
+            Q(nombre_comercial__icontains=query) |
+            Q(ruc__icontains=query) |
+            Q(sector_economico__icontains=query)
+        ).order_by('razon_social')[:20]
+    
+    # ========================================================================
+    # RESOLVERS - SUPERVISOR
+    # ========================================================================
+    
     @login_required
     def resolve_supervisor(self, info, id):
-        """Resuelve un supervisor específico."""
+        """Resolver: Supervisor por ID."""
         try:
             return Supervisor.objects.select_related('user', 'company').get(id=id)
         except Supervisor.DoesNotExist:
             return None
-
+    
+    @login_required
+    def resolve_my_supervisor_profile(self, info):
+        """Resolver: Perfil de supervisor del usuario actual."""
+        current_user = info.context.user
+        
+        if current_user.role != 'SUPERVISOR':
+            return None
+        
+        return getattr(current_user, 'supervisor_profile', None)
+    
+    @login_required
+    def resolve_supervisors(self, info, company_id=None):
+        """Resolver: Lista de supervisores."""
+        current_user = info.context.user
+        
+        if not can_view_supervisors(current_user):
+            return []
+        
+        queryset = Supervisor.objects.select_related('user', 'company').all()
+        
+        if company_id:
+            queryset = queryset.filter(company_id=company_id)
+        
+        return queryset.order_by('user__first_name', 'user__last_name')
+    
     @login_required
     def resolve_company_supervisors(self, info, company_id):
-        """Resuelve supervisores de una empresa."""
-        return Supervisor.objects.filter(company_id=company_id).select_related('user')
-
-    # ===== RESOLVERS PRÁCTICAS =====
+        """Resolver: Supervisores de una empresa."""
+        return Supervisor.objects.filter(
+            company_id=company_id,
+            user__is_active=True
+        ).select_related('user').order_by('user__first_name', 'user__last_name')
+    
     @login_required
-    def resolve_practices(self, info, **kwargs):
-        """Resuelve la lista de prácticas."""
-        user = info.context.user
-        if user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
-            return Practice.objects.select_related('student__user', 'company', 'supervisor__user').all()
-        elif user.role == 'SUPERVISOR':
-            supervisor = getattr(user, 'supervisor_profile', None)
-            if supervisor:
-                return Practice.objects.filter(supervisor=supervisor).select_related('student__user', 'company')
-        elif user.role == 'PRACTICANTE':
-            student = getattr(user, 'student_profile', None)
-            if student:
-                return Practice.objects.filter(student=student).select_related('company', 'supervisor__user')
-        return Practice.objects.none()
-
+    def resolve_available_supervisors(self, info, company_id):
+        """Resolver: Supervisores disponibles (con capacidad)."""
+        # Supervisores con menos de 5 prácticas activas
+        return Supervisor.objects.filter(
+            company_id=company_id,
+            user__is_active=True
+        ).annotate(
+            active_practices=Count(
+                'practices',
+                filter=Q(practices__status__in=['APPROVED', 'IN_PROGRESS'])
+            )
+        ).filter(
+            active_practices__lt=5
+        ).select_related('user').order_by('active_practices', 'user__first_name')
+    
+    # ========================================================================
+    # RESOLVERS - PRACTICE
+    # ========================================================================
+    
     @login_required
     def resolve_practice(self, info, id):
-        """Resuelve una práctica específica."""
-        user = info.context.user
+        """Resolver: Práctica por ID."""
+        current_user = info.context.user
+        
         try:
             practice = Practice.objects.select_related(
                 'student__user', 'company', 'supervisor__user'
             ).get(id=id)
             
             # Verificar permisos
-            if user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
+            if can_view_practices(current_user):
                 return practice
-            elif user.role == 'PRACTICANTE':
-                student = getattr(user, 'student_profile', None)
+            elif current_user.role == 'PRACTICANTE':
+                student = getattr(current_user, 'student_profile', None)
                 if student and practice.student.id == student.id:
                     return practice
-            elif user.role == 'SUPERVISOR':
-                supervisor = getattr(user, 'supervisor_profile', None)
+            elif current_user.role == 'SUPERVISOR':
+                supervisor = getattr(current_user, 'supervisor_profile', None)
                 if supervisor and practice.supervisor and practice.supervisor.id == supervisor.id:
                     return practice
         except Practice.DoesNotExist:
             pass
+        
         return None
-
+    
+    @login_required
+    def resolve_practices(self, info, page=1, page_size=20, status=None, student_id=None, 
+                         company_id=None, supervisor_id=None, fecha_inicio_from=None,
+                         fecha_inicio_to=None, search=None, order_by="-created_at"):
+        """Resolver: Lista paginada de prácticas."""
+        current_user = info.context.user
+        
+        # Query base según permisos
+        if can_view_practices(current_user):
+            queryset = Practice.objects.select_related('student__user', 'company', 'supervisor__user').all()
+        elif current_user.role == 'PRACTICANTE':
+            student = getattr(current_user, 'student_profile', None)
+            if student:
+                queryset = Practice.objects.filter(student=student).select_related('company', 'supervisor__user')
+            else:
+                return PracticeListType(items=[], pagination=None)
+        elif current_user.role == 'SUPERVISOR':
+            supervisor = getattr(current_user, 'supervisor_profile', None)
+            if supervisor:
+                queryset = Practice.objects.filter(supervisor=supervisor).select_related('student__user', 'company')
+            else:
+                return PracticeListType(items=[], pagination=None)
+        else:
+            return PracticeListType(items=[], pagination=None)
+        
+        # Filtros
+        if status:
+            queryset = queryset.filter(status=status)
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+        if company_id:
+            queryset = queryset.filter(company_id=company_id)
+        if supervisor_id:
+            queryset = queryset.filter(supervisor_id=supervisor_id)
+        if fecha_inicio_from:
+            queryset = queryset.filter(fecha_inicio__gte=fecha_inicio_from)
+        if fecha_inicio_to:
+            queryset = queryset.filter(fecha_inicio__lte=fecha_inicio_to)
+        if search:
+            queryset = queryset.filter(
+                Q(titulo__icontains=search) |
+                Q(area_practica__icontains=search) |
+                Q(company__razon_social__icontains=search) |
+                Q(student__user__first_name__icontains=search) |
+                Q(student__user__last_name__icontains=search)
+            )
+        
+        # Ordenamiento
+        queryset = queryset.order_by(order_by)
+        
+        # Paginación
+        total_count = queryset.count()
+        total_pages = (total_count + page_size - 1) // page_size
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = list(queryset[start:end])
+        
+        pagination = PaginationType(
+            page=page,
+            page_size=page_size,
+            total_count=total_count,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_previous=page > 1
+        )
+        
+        return PracticeListType(items=items, pagination=pagination)
+    
     @login_required
     def resolve_my_practices(self, info):
-        """Resuelve las prácticas del usuario actual."""
-        user = info.context.user
-        if user.role == 'PRACTICANTE':
-            student = getattr(user, 'student_profile', None)
+        """Resolver: Prácticas del usuario actual."""
+        current_user = info.context.user
+        
+        if current_user.role == 'PRACTICANTE':
+            student = getattr(current_user, 'student_profile', None)
             if student:
-                return Practice.objects.filter(student=student).select_related('company', 'supervisor__user')
-        elif user.role == 'SUPERVISOR':
-            supervisor = getattr(user, 'supervisor_profile', None)
+                return Practice.objects.filter(student=student).select_related(
+                    'company', 'supervisor__user'
+                ).order_by('-created_at')
+        elif current_user.role == 'SUPERVISOR':
+            supervisor = getattr(current_user, 'supervisor_profile', None)
             if supervisor:
-                return Practice.objects.filter(supervisor=supervisor).select_related('student__user', 'company')
-        return Practice.objects.none()
-
+                return Practice.objects.filter(supervisor=supervisor).select_related(
+                    'student__user', 'company'
+                ).order_by('-created_at')
+        
+        return []
+    
     @login_required
     def resolve_practices_by_status(self, info, status):
-        """Resuelve prácticas por estado."""
-        user = info.context.user
-        base_query = Practice.objects.filter(status=status).select_related('student__user', 'company', 'supervisor__user')
+        """Resolver: Prácticas por estado."""
+        current_user = info.context.user
         
-        if user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
-            return base_query
-        elif user.role == 'SUPERVISOR':
-            supervisor = getattr(user, 'supervisor_profile', None)
+        if can_view_practices(current_user):
+            return Practice.objects.filter(status=status).select_related(
+                'student__user', 'company', 'supervisor__user'
+            ).order_by('-created_at')
+        elif current_user.role == 'SUPERVISOR':
+            supervisor = getattr(current_user, 'supervisor_profile', None)
             if supervisor:
-                return base_query.filter(supervisor=supervisor)
-        return Practice.objects.none()
-
-    # ===== RESOLVERS DOCUMENTOS =====
+                return Practice.objects.filter(
+                    status=status,
+                    supervisor=supervisor
+                ).select_related('student__user', 'company').order_by('-created_at')
+        
+        return []
+    
     @login_required
-    def resolve_documents(self, info, **kwargs):
-        """Resuelve la lista de documentos."""
-        user = info.context.user
-        if user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
-            return Document.objects.select_related('practice', 'subido_por').all()
-        return Document.objects.none()
-
+    def resolve_student_practices(self, info, student_id):
+        """Resolver: Prácticas de un estudiante."""
+        current_user = info.context.user
+        
+        if not can_view_practices(current_user):
+            return []
+        
+        return Practice.objects.filter(student_id=student_id).select_related(
+            'company', 'supervisor__user'
+        ).order_by('-created_at')
+    
+    @login_required
+    def resolve_company_practices(self, info, company_id):
+        """Resolver: Prácticas de una empresa."""
+        current_user = info.context.user
+        
+        if not can_view_practices(current_user):
+            return []
+        
+        return Practice.objects.filter(company_id=company_id).select_related(
+            'student__user', 'supervisor__user'
+        ).order_by('-created_at')
+    
+    @login_required
+    def resolve_supervisor_practices(self, info, supervisor_id):
+        """Resolver: Prácticas de un supervisor."""
+        current_user = info.context.user
+        
+        if not can_view_practices(current_user):
+            return []
+        
+        return Practice.objects.filter(supervisor_id=supervisor_id).select_related(
+            'student__user', 'company'
+        ).order_by('-created_at')
+    
+    @login_required
+    def resolve_active_practices(self, info):
+        """Resolver: Prácticas activas."""
+        current_user = info.context.user
+        
+        if not can_view_practices(current_user):
+            return []
+        
+        return Practice.objects.filter(
+            status__in=['APPROVED', 'IN_PROGRESS']
+        ).select_related('student__user', 'company', 'supervisor__user').order_by('-fecha_inicio')
+    
+    @login_required
+    def resolve_pending_approval_practices(self, info):
+        """Resolver: Prácticas pendientes de aprobación."""
+        current_user = info.context.user
+        
+        if current_user.role not in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
+            return []
+        
+        return Practice.objects.filter(status='PENDING').select_related(
+            'student__user', 'company', 'supervisor__user'
+        ).order_by('created_at')
+    
+    @login_required
+    def resolve_completed_practices(self, info, year=None):
+        """Resolver: Prácticas completadas."""
+        current_user = info.context.user
+        
+        if not can_view_practices(current_user):
+            return []
+        
+        queryset = Practice.objects.filter(status='COMPLETED').select_related(
+            'student__user', 'company', 'supervisor__user'
+        )
+        
+        if year:
+            queryset = queryset.filter(fecha_fin__year=year)
+        
+        return queryset.order_by('-fecha_fin')
+    
+    # ========================================================================
+    # RESOLVERS - DOCUMENT
+    # ========================================================================
+    
     @login_required
     def resolve_document(self, info, id):
-        """Resuelve un documento específico."""
+        """Resolver: Documento por ID."""
         try:
             return Document.objects.select_related('practice', 'subido_por').get(id=id)
         except Document.DoesNotExist:
             return None
-
+    
+    @login_required
+    def resolve_documents(self, info, practice_id=None, tipo=None, aprobado=None):
+        """Resolver: Lista de documentos."""
+        current_user = info.context.user
+        
+        if not can_view_documents(current_user):
+            return []
+        
+        queryset = Document.objects.select_related('practice', 'subido_por').all()
+        
+        if practice_id:
+            queryset = queryset.filter(practice_id=practice_id)
+        if tipo:
+            queryset = queryset.filter(tipo=tipo)
+        if aprobado is not None:
+            queryset = queryset.filter(aprobado=aprobado)
+        
+        return queryset.order_by('-created_at')
+    
     @login_required
     def resolve_practice_documents(self, info, practice_id):
-        """Resuelve documentos de una práctica."""
-        user = info.context.user
+        """Resolver: Documentos de una práctica."""
+        current_user = info.context.user
+        
         try:
             practice = Practice.objects.get(id=practice_id)
             
-            # Verificar permisos para ver la práctica
+            # Verificar permisos
             can_view = False
-            if user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
+            if can_view_practices(current_user):
                 can_view = True
-            elif user.role == 'PRACTICANTE':
-                student = getattr(user, 'student_profile', None)
+            elif current_user.role == 'PRACTICANTE':
+                student = getattr(current_user, 'student_profile', None)
                 if student and practice.student.id == student.id:
                     can_view = True
-            elif user.role == 'SUPERVISOR':
-                supervisor = getattr(user, 'supervisor_profile', None)
+            elif current_user.role == 'SUPERVISOR':
+                supervisor = getattr(current_user, 'supervisor_profile', None)
                 if supervisor and practice.supervisor and practice.supervisor.id == supervisor.id:
                     can_view = True
             
             if can_view:
-                return Document.objects.filter(practice=practice).select_related('subido_por')
+                return Document.objects.filter(practice=practice).select_related(
+                    'subido_por'
+                ).order_by('-created_at')
         except Practice.DoesNotExist:
             pass
-        return Document.objects.none()
-
-    # ===== RESOLVERS NOTIFICACIONES =====
+        
+        return []
+    
     @login_required
-    def resolve_notifications(self, info, **kwargs):
-        """Resuelve la lista de notificaciones."""
-        user = info.context.user
-        if user.role in ['ADMINISTRADOR']:
-            return Notification.objects.select_related('user').all()
-        return Notification.objects.none()
-
+    def resolve_pending_approval_documents(self, info):
+        """Resolver: Documentos pendientes de aprobación."""
+        current_user = info.context.user
+        
+        if current_user.role not in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
+            return []
+        
+        return Document.objects.filter(aprobado=False).select_related(
+            'practice__student__user', 'practice__company', 'subido_por'
+        ).order_by('created_at')
+    
     @login_required
-    def resolve_my_notifications(self, info):
-        """Resuelve las notificaciones del usuario actual."""
-        return Notification.objects.filter(user=info.context.user).order_by('-created_at')
-
+    def resolve_my_documents(self, info):
+        """Resolver: Documentos del usuario actual."""
+        current_user = info.context.user
+        
+        return Document.objects.filter(subido_por=current_user).select_related(
+            'practice__company'
+        ).order_by('-created_at')
+    
+    # ========================================================================
+    # RESOLVERS - NOTIFICATION
+    # ========================================================================
+    
+    @login_required
+    def resolve_my_notifications(self, info, leida=None, tipo=None, limit=50):
+        """Resolver: Notificaciones del usuario actual."""
+        current_user = info.context.user
+        
+        queryset = Notification.objects.filter(user=current_user)
+        
+        if leida is not None:
+            queryset = queryset.filter(leida=leida)
+        if tipo:
+            queryset = queryset.filter(tipo=tipo)
+        
+        return queryset.order_by('-created_at')[:limit]
+    
     @login_required
     def resolve_unread_notifications(self, info):
-        """Resuelve las notificaciones no leídas del usuario actual."""
+        """Resolver: Notificaciones no leídas."""
+        current_user = info.context.user
+        
         return Notification.objects.filter(
-            user=info.context.user, 
+            user=current_user,
             leida=False
         ).order_by('-created_at')
-
-    # ===== RESOLVERS ESTADÍSTICAS =====
+    
     @login_required
-    def resolve_statistics(self, info):
-        """Resuelve estadísticas del sistema."""
-        user = info.context.user
-        if user.role not in ['COORDINADOR', 'ADMINISTRADOR']:
+    def resolve_unread_count(self, info):
+        """Resolver: Cantidad de notificaciones no leídas."""
+        current_user = info.context.user
+        
+        return Notification.objects.filter(
+            user=current_user,
+            leida=False
+        ).count()
+    
+    # ========================================================================
+    # RESOLVERS - STATISTICS
+    # ========================================================================
+    
+    @login_required
+    def resolve_dashboard_statistics(self, info):
+        """Resolver: Estadísticas del dashboard."""
+        current_user = info.context.user
+        
+        if current_user.role not in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
             return None
         
-        from django.db.models import Count, Q
+        # Estadísticas de prácticas
+        practice_stats = Practice.objects.aggregate(
+            total=Count('id'),
+            draft=Count('id', filter=Q(status='DRAFT')),
+            pending=Count('id', filter=Q(status='PENDING')),
+            approved=Count('id', filter=Q(status='APPROVED')),
+            in_progress=Count('id', filter=Q(status='IN_PROGRESS')),
+            completed=Count('id', filter=Q(status='COMPLETED')),
+            cancelled=Count('id', filter=Q(status='CANCELLED')),
+            avg_hours=Avg('horas_totales'),
+            avg_grade=Avg('calificacion_final', filter=Q(calificacion_final__isnull=False))
+        )
         
-        stats = {
-            'total_users': User.objects.count(),
-            'total_students': Student.objects.count(),
-            'total_companies': Company.objects.count(),
-            'total_practices': Practice.objects.count(),
-            'active_practices': Practice.objects.filter(status='IN_PROGRESS').count(),
-            'completed_practices': Practice.objects.filter(status='COMPLETED').count(),
-            'pending_practices': Practice.objects.filter(status='PENDING').count(),
-            'practices_by_status': {
-                'draft': Practice.objects.filter(status='DRAFT').count(),
-                'pending': Practice.objects.filter(status='PENDING').count(),
-                'approved': Practice.objects.filter(status='APPROVED').count(),
-                'in_progress': Practice.objects.filter(status='IN_PROGRESS').count(),
-                'completed': Practice.objects.filter(status='COMPLETED').count(),
-                'cancelled': Practice.objects.filter(status='CANCELLED').count(),
-            },
-            'companies_by_status': {
-                'active': Company.objects.filter(status='ACTIVE').count(),
-                'pending': Company.objects.filter(status='PENDING_VALIDATION').count(),
-                'suspended': Company.objects.filter(status='SUSPENDED').count(),
-            }
-        }
+        # Estadísticas de estudiantes
+        student_stats = Student.objects.aggregate(
+            total=Count('id'),
+            eligible=Count('id', filter=Q(semestre_actual__gte=6, promedio_ponderado__gte=12.0)),
+            with_practice=Count('id', filter=Q(practices__status__in=['APPROVED', 'IN_PROGRESS'])),
+            avg_gpa=Avg('promedio_ponderado')
+        )
+        student_stats['without_practice'] = student_stats['total'] - student_stats['with_practice']
         
-        return stats
-    
-    # ===== RESOLVERS ROLES Y PERMISOS =====
-    @login_required
-    def resolve_permissions(self, info, module=None):
-        """Resuelve la lista de permisos."""
-        user = info.context.user
+        # Estudiantes por semestre
+        by_semester = {}
+        for sem in range(1, 13):
+            count = Student.objects.filter(semestre_actual=sem).count()
+            by_semester[f'semestre_{sem}'] = count
+        student_stats['by_semester'] = by_semester
         
-        # DEBUG: Imprimir información del usuario
-        print(f"🔍 DEBUG resolve_permissions:")
-        print(f"   - Usuario: {user.username}")
-        print(f"   - Email: {user.email}")
-        print(f"   - Rol: {user.role}")
-        print(f"   - Es activo: {user.is_active}")
+        # Estadísticas de empresas
+        company_stats = Company.objects.aggregate(
+            total=Count('id'),
+            active=Count('id', filter=Q(status='ACTIVE')),
+            pending=Count('id', filter=Q(status='PENDING_VALIDATION')),
+            suspended=Count('id', filter=Q(status='SUSPENDED')),
+            blacklisted=Count('id', filter=Q(status='BLACKLISTED')),
+            with_practices=Count('id', filter=Q(practices__isnull=False))
+        )
         
-        # Solo administradores pueden ver permisos
-        if user.role != 'ADMINISTRADOR':
-            print(f"❌ Usuario {user.username} con rol {user.role} intentó acceder a permisos")
-            from graphql import GraphQLError
-            raise GraphQLError(
-                "No tienes permisos para ver la lista de permisos",
-                extensions={
-                    'code': 'INSUFFICIENT_PERMISSIONS',
-                    'required_role': 'ADMINISTRADOR',
-                    'current_role': user.role
-                }
-            )
+        # Empresas por sector
+        by_sector = {}
+        sectors = Company.objects.values_list('sector_economico', flat=True).distinct()
+        for sector in sectors:
+            if sector:
+                count = Company.objects.filter(sector_economico=sector).count()
+                by_sector[sector] = count
+        company_stats['by_sector'] = by_sector
         
-        print(f"✅ Usuario ADMINISTRADOR accediendo a permisos")
-        queryset = Permission.objects.filter(is_active=True)
-        if module:
-            queryset = queryset.filter(module=module)
+        # Actividades recientes (últimas 10)
+        recent_activities = []
+        recent_practices = Practice.objects.select_related('student__user', 'company').order_by('-created_at')[:5]
+        for practice in recent_practices:
+            recent_activities.append({
+                'type': 'practice',
+                'action': 'created',
+                'description': f'Nueva práctica: {practice.titulo}',
+                'student': practice.student.user.get_full_name(),
+                'company': practice.company.razon_social,
+                'timestamp': practice.created_at.isoformat()
+            })
         
-        permissions_count = queryset.count()
-        print(f"📊 Total de permisos encontrados: {permissions_count}")
+        recent_documents = Document.objects.select_related('practice__student__user', 'subido_por').order_by('-created_at')[:5]
+        for doc in recent_documents:
+            recent_activities.append({
+                'type': 'document',
+                'action': 'uploaded',
+                'description': f'Documento subido: {doc.nombre_archivo}',
+                'student': doc.practice.student.user.get_full_name(),
+                'uploaded_by': doc.subido_por.get_full_name(),
+                'timestamp': doc.created_at.isoformat()
+            })
         
-        return queryset.order_by('module', 'code')
-    
-    @login_required
-    def resolve_permission(self, info, id):
-        """Resuelve un permiso específico."""
-        user = info.context.user
+        # Ordenar por timestamp y tomar los 10 más recientes
+        recent_activities = sorted(recent_activities, key=lambda x: x['timestamp'], reverse=True)[:10]
         
-        if user.role != 'ADMINISTRADOR':
-            from graphql import GraphQLError
-            raise GraphQLError(
-                "No tienes permisos para ver información de permisos",
-                extensions={
-                    'code': 'INSUFFICIENT_PERMISSIONS',
-                    'required_role': 'ADMINISTRADOR',
-                    'current_role': user.role
-                }
-            )
-        
-        try:
-            return Permission.objects.get(pk=id)
-        except Permission.DoesNotExist:
-            return None
-    
-    @login_required
-    def resolve_roles(self, info, is_active=None):
-        """Resuelve la lista de roles."""
-        user = info.context.user
-        
-        # DEBUG: Imprimir información del usuario
-        print(f"🔍 DEBUG resolve_roles:")
-        print(f"   - Usuario: {user.username}")
-        print(f"   - Rol: {user.role}")
-        
-        # Solo administradores pueden ver roles
-        if user.role == 'ADMINISTRADOR':
-            print(f"✅ Usuario ADMINISTRADOR accediendo a roles")
-            queryset = Role.objects.all()
-            if is_active is not None:
-                queryset = queryset.filter(is_active=is_active)
-            roles_count = queryset.count()
-            print(f"📊 Total de roles encontrados: {roles_count}")
-            return queryset.order_by('name')
-        
-        # Lanzar error claro para usuarios sin permisos
-        from graphql import GraphQLError
-        raise GraphQLError(
-            "No tienes permisos para ver la lista de roles",
-            extensions={
-                'code': 'INSUFFICIENT_PERMISSIONS',
-                'required_role': 'ADMINISTRADOR',
-                'current_role': user.role
-            }
+        return DashboardStatisticsType(
+            practices=PracticeStatisticsType(**practice_stats),
+            students=StudentStatisticsType(**student_stats),
+            companies=CompanyStatisticsType(**company_stats),
+            recent_activities=recent_activities
         )
     
     @login_required
-    def resolve_role(self, info, id):
-        """Resuelve un rol específico."""
-        user = info.context.user
+    def resolve_practice_statistics(self, info, year=None):
+        """Resolver: Estadísticas de prácticas."""
+        current_user = info.context.user
         
-        if not user.is_administrador and not user.is_superuser:
+        if current_user.role not in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
             return None
         
-        try:
-            return Role.objects.get(pk=id)
-        except Role.DoesNotExist:
-            return None
-    
-    @login_required
-    def resolve_user_permissions_info(self, info, user_id):
-        """Resuelve información de permisos de un usuario."""
-        admin_user = info.context.user
+        queryset = Practice.objects.all()
         
-        # Solo administradores pueden ver permisos de otros usuarios
-        if not admin_user.is_administrador and not admin_user.is_superuser:
-            return None
+        if year:
+            queryset = queryset.filter(fecha_inicio__year=year)
         
-        try:
-            target_user = User.objects.get(pk=user_id)
-            
-            role_perms = []
-            if target_user.role_obj:
-                role_perms = list(target_user.role_obj.permissions.filter(is_active=True))
-            
-            custom_perms = list(target_user.custom_permissions.filter(
-                permission__is_active=True
-            ))
-            
-            return UserPermissionsInfo(
-                role=target_user.role_obj,
-                role_permissions=role_perms,
-                custom_permissions=custom_perms,
-                all_permissions=target_user.get_all_permissions()
-            )
-        except User.DoesNotExist:
-            return None
-    
-    @login_required
-    def resolve_my_permissions_info(self, info):
-        """Resuelve información de permisos del usuario autenticado."""
-        user = info.context.user
-        
-        role_perms = []
-        if user.role_obj:
-            role_perms = list(user.role_obj.permissions.filter(is_active=True))
-        
-        custom_perms = list(user.custom_permissions.filter(
-            permission__is_active=True
-        ))
-        
-        return UserPermissionsInfo(
-            role=user.role_obj,
-            role_permissions=role_perms,
-            custom_permissions=custom_perms,
-            all_permissions=user.get_all_permissions()
+        stats = queryset.aggregate(
+            total=Count('id'),
+            draft=Count('id', filter=Q(status='DRAFT')),
+            pending=Count('id', filter=Q(status='PENDING')),
+            approved=Count('id', filter=Q(status='APPROVED')),
+            in_progress=Count('id', filter=Q(status='IN_PROGRESS')),
+            completed=Count('id', filter=Q(status='COMPLETED')),
+            cancelled=Count('id', filter=Q(status='CANCELLED')),
+            average_hours=Avg('horas_totales'),
+            average_grade=Avg('calificacion_final', filter=Q(calificacion_final__isnull=False))
         )
-    
-    # ===== RESOLVERS AVATARES =====
-    @login_required
-    def resolve_avatars_by_role(self, info):
-        """Resuelve avatares según el rol del usuario autenticado desde la base de datos."""
-        user = info.context.user
-        user_role = user.role
         
-        # Obtener avatares activos para el rol del usuario desde la BD
-        avatars = Avatar.objects.filter(
-            role=user_role,
-            is_active=True
-        ).order_by('created_at')
-        
-        return avatars
+        return PracticeStatisticsType(**stats)
     
     @login_required
-    def resolve_list_avatars(self, info, role=None):
-        """Resuelve lista de avatares para administradores (con filtro opcional por rol)."""
-        user = info.context.user
+    def resolve_student_statistics(self, info):
+        """Resolver: Estadísticas de estudiantes."""
+        current_user = info.context.user
         
-        # Solo ADMINISTRADOR puede listar todos los avatares
-        if user.role != 'ADMINISTRADOR':
-            from graphql import GraphQLError
-            raise GraphQLError(
-                "No tienes permisos para listar avatares",
-                extensions={
-                    'code': 'INSUFFICIENT_PERMISSIONS',
-                    'required_role': 'ADMINISTRADOR',
-                    'current_role': user.role
-                }
-            )
+        if current_user.role not in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
+            return None
         
-        # Filtrar por rol si se especifica
-        queryset = Avatar.objects.all()
-        if role:
-            queryset = queryset.filter(role=role)
+        stats = Student.objects.aggregate(
+            total=Count('id'),
+            eligible=Count('id', filter=Q(semestre_actual__gte=6, promedio_ponderado__gte=12.0)),
+            with_practice=Count('id', filter=Q(practices__status__in=['APPROVED', 'IN_PROGRESS'])),
+            average_gpa=Avg('promedio_ponderado')
+        )
         
-        return queryset.order_by('role', 'created_at')
+        stats['without_practice'] = stats['total'] - stats['with_practice']
+        
+        # Por semestre
+        by_semester = {}
+        for sem in range(1, 13):
+            count = Student.objects.filter(semestre_actual=sem).count()
+            by_semester[f'semestre_{sem}'] = count
+        stats['by_semester'] = by_semester
+        
+        return StudentStatisticsType(**stats)
     
-    # ===== RESOLVERS BUSCAR EMPRESA =====
     @login_required
-    def resolve_buscar_empresa_ruc(self, info, ruc):
-        """Busca información de empresa por RUC usando API externa."""
-        user = info.context.user
+    def resolve_company_statistics(self, info):
+        """Resolver: Estadísticas de empresas."""
+        current_user = info.context.user
         
-        # Solo ADMINISTRADOR y PRACTICANTE pueden buscar empresas
-        if user.role not in ['ADMINISTRADOR', 'PRACTICANTE']:
-            from graphql import GraphQLError
-            raise GraphQLError(
-                "No tienes permisos para buscar empresas",
-                extensions={
-                    'code': 'INSUFFICIENT_PERMISSIONS',
-                    'required_roles': ['ADMINISTRADOR', 'PRACTICANTE'],
-                    'current_role': user.role
-                }
-            )
+        if current_user.role not in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
+            return None
         
-        # Validar formato de RUC (11 dígitos)
-        if not ruc or len(ruc) != 11 or not ruc.isdigit():
-            from graphql import GraphQLError
-            raise GraphQLError(
-                "RUC debe tener exactamente 11 dígitos",
-                extensions={
-                    'code': 'INVALID_RUC_FORMAT',
-                    'ruc': ruc
-                }
-            )
+        stats = Company.objects.aggregate(
+            total=Count('id'),
+            active=Count('id', filter=Q(status='ACTIVE')),
+            pending=Count('id', filter=Q(status='PENDING_VALIDATION')),
+            suspended=Count('id', filter=Q(status='SUSPENDED')),
+            blacklisted=Count('id', filter=Q(status='BLACKLISTED')),
+            with_practices=Count('id', filter=Q(practices__isnull=False))
+        )
         
-        try:
-            import requests
-            
-            # API Token
-            api_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6InByYWN0aWNhc2dlc3Rpb241QGdtYWlsLmNvbSJ9.JeW3jVctA3mDkU9IZSl_ATzO0AwZiHo53YChh3_ZUyI"
-            
-            # Llamar a la API
-            url = f"https://dniruc.apisperu.com/api/v1/ruc/{ruc}?token={api_token}"
-            response = requests.get(url, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                # Extraer solo los campos necesarios
-                return EmpresaRucType(
-                    ruc=data.get('ruc'),
-                    razon_social=data.get('razonSocial'),
-                    nombre_comercial=data.get('nombreComercial'),
-                    direccion=data.get('direccion'),
-                    departamento=data.get('departamento'),
-                    provincia=data.get('provincia'),
-                    distrito=data.get('distrito'),
-                    estado=data.get('estado'),
-                    condicion=data.get('condicion')
-                )
-            else:
-                from graphql import GraphQLError
-                raise GraphQLError(
-                    f"Error al consultar RUC: {response.status_code}",
-                    extensions={
-                        'code': 'API_ERROR',
-                        'status_code': response.status_code,
-                        'ruc': ruc
-                    }
-                )
-                
-        except requests.exceptions.Timeout:
-            from graphql import GraphQLError
-            raise GraphQLError(
-                "Timeout al consultar la API de RUC",
-                extensions={
-                    'code': 'API_TIMEOUT',
-                    'ruc': ruc
-                }
-            )
-        except requests.exceptions.RequestException as e:
-            from graphql import GraphQLError
-            raise GraphQLError(
-                f"Error de conexión con la API: {str(e)}",
-                extensions={
-                    'code': 'CONNECTION_ERROR',
-                    'ruc': ruc
-                }
-            )
-        except Exception as e:
-            from graphql import GraphQLError
-            raise GraphQLError(
-                f"Error inesperado: {str(e)}",
-                extensions={
-                    'code': 'UNEXPECTED_ERROR',
-                    'ruc': ruc
-                }
-            )
+        # Por sector
+        by_sector = {}
+        sectors = Company.objects.values_list('sector_economico', flat=True).distinct()
+        for sector in sectors:
+            if sector:
+                count = Company.objects.filter(sector_economico=sector).count()
+                by_sector[sector] = count
+        stats['by_sector'] = by_sector
+        
+        return CompanyStatisticsType(**stats)

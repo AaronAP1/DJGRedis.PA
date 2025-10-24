@@ -4,7 +4,7 @@
 
 Este documento describe todas las queries GraphQL disponibles en el sistema. Las queries están organizadas por entidad e incluyen filtros, búsquedas, paginación y estadísticas.
 
-**Archivo**: `src/adapters/primary/graphql_api/queries_complete.py`
+**Archivo**: `src/adapters/primary/graphql_api/queries.py`
 
 **Total de Queries**: 50+
 

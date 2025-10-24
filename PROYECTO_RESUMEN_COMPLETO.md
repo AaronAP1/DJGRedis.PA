@@ -93,8 +93,8 @@
 
 ### ✅ Fase 4: GraphQL Mutations
 **Estado**: COMPLETADA  
-**Archivos**: `src/adapters/primary/graphql_api/mutations_complete.py`  
-**Líneas de código**: ~1,400 líneas  
+**Archivos**: `src/adapters/primary/graphql_api/mutations.py`  
+**Líneas de código**: ~1,900 líneas  
 **Mutations**: 30+  
 
 **Categorías de mutations**:
@@ -118,7 +118,7 @@
 
 ### ✅ Fase 5: GraphQL Queries
 **Estado**: COMPLETADA  
-**Archivos**: `src/adapters/primary/graphql_api/queries_complete.py`  
+**Archivos**: `src/adapters/primary/graphql_api/queries.py`  
 **Líneas de código**: ~1,600 líneas  
 **Queries**: 50+  
 
@@ -146,7 +146,7 @@
 **Estado**: COMPLETADA  
 **Archivos**: 
 - `src/adapters/primary/rest_api/urls_api_v2.py` (~250 líneas)
-- `src/adapters/primary/graphql_api/urls_complete.py` (~330 líneas)
+- `src/adapters/primary/graphql_api/urls.py` (~350 líneas)
 - `config/urls.py` (actualizado)
 
 **Estructura de URLs**:
@@ -415,10 +415,10 @@ src/
 │   │   │       └── reports.py
 │   │   └── graphql_api/      # GraphQL API
 │   │       ├── types.py
-│   │       ├── mutations_complete.py
-│   │       ├── queries_complete.py
+│   │       ├── mutations.py
+│   │       ├── queries.py
 │   │       ├── schema.py
-│   │       └── urls_complete.py
+│   │       └── urls.py
 │   │
 │   └── secondary/             # Adaptadores secundarios
 │       ├── django_orm/        # Persistencia con Django ORM

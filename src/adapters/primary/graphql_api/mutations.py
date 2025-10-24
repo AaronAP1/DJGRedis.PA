@@ -1,1246 +1,1933 @@
 """
-Mutations GraphQL para el sistema de gestión de prácticas profesionales.
+Mutations GraphQL completas para el sistema de gestión de prácticas profesionales.
+
+Este módulo implementa todas las mutations necesarias para:
+- CRUD de todas las entidades (User, Student, Company, Supervisor, Practice, Document, Notification)
+- Operaciones especiales (aprobar, rechazar, cambiar estado, etc.)
+- Integración con sistema de permisos (decorators de Fase 1)
+- Validaciones de negocio completas
+- Notificaciones automáticas
+
+Mutations implementadas: 30+
 """
 
 import graphene
-import graphql_jwt
-try:
-    from graphql_jwt.decorators import login_required, allow_any  # type: ignore
-except Exception:  # pragma: no cover
-    # Algunas versiones de graphql_jwt no exponen allow_any; definimos un no-op.
-    from graphql_jwt.decorators import login_required  # type: ignore
-
-    def allow_any(func):  # nosec - decorador no-op para permitir acceso anónimo
-        return func
+from graphql_jwt.decorators import login_required
 from django.contrib.auth import get_user_model
-from graphql_relay import from_global_id
 from django.db import transaction
 from django.utils import timezone
-from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
-from django.template.loader import render_to_string
-from django.utils.encoding import force_bytes, force_str
-from django.contrib.auth import authenticate
-from django.core.cache import cache
-from django.core.files.base import ContentFile
-import secrets
-import logging
-import base64
-import time
-import requests
-from urllib.parse import urlparse
-from PIL import Image
-import io
-from rest_framework_simplejwt.tokens import RefreshToken as DRFRefreshToken
-from src.infrastructure.security.tasks import send_welcome_email
-from src.infrastructure.security.decorators import sanitize_mutation_input
-from src.infrastructure.security.sanitizers import sanitize_text_field
-from rest_framework.throttling import AnonRateThrottle
+from datetime import datetime
+from graphql import GraphQLError
 
 from .types import (
     UserType, StudentType, CompanyType, SupervisorType,
-    PracticeType, DocumentType, NotificationType,
-    UserInput, UserUpdateInput, ProfileInput, StudentInput, CompanyInput,
-    PracticeInput
+    PracticeType, DocumentType, NotificationType
 )
-from .permissions_mutations import GrantUserPermission, RevokeUserPermission
 from src.adapters.secondary.database.models import (
-    Student, Company, Supervisor, Practice, Document, Notification, Avatar,
-    Role, Permission
+    Student, Company, Supervisor, Practice, Document, Notification
 )
-from src.domain.enums import UserRole, PracticeStatus, CompanyStatus
-from src.infrastructure.security.cloudflare_turnstile import verify_turnstile_token
+from src.infrastructure.security.decorators import (
+    staff_required, role_required, administrador_required,
+    coordinador_required
+)
+from src.infrastructure.security.permission_helpers import (
+    can_create_student, can_update_student, can_create_company,
+    can_update_company, can_validate_company, can_create_supervisor,
+    can_update_supervisor, can_create_practice, can_update_practice,
+    can_approve_practice, can_upload_document, can_approve_document,
+    is_staff
+)
 
 User = get_user_model()
 
 
-class ForgotPasswordThrottle(AnonRateThrottle):
-    """Throttle personalizado para forgot password."""
-    scope = 'password_reset'
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
 
-
-# Utilidad: normaliza un ID aceptando tanto Global ID (Relay) como UUID crudo
-def _resolve_real_id(raw_id: str) -> str:
-    """Devuelve el UUID real desde un Global ID o el propio valor si ya es UUID.
-    Limpia espacios y comillas tipográficas que a veces llegan desde el navegador.
-    """
-    try:
-        s = str(raw_id or '').strip()
-    except Exception:
-        s = ''
-    if not s:
-        return ''
-    # Eliminar comillas tipográficas u otros delimitadores extraños
-    for ch in ('\u201c', '\u201d', '\u00ab', '\u00bb', '“', '”', '«', '»'):
-        s = s.replace(ch, '')
-    s = s.strip()
-    if not s:
-        return ''
-    # Intentar decodificar como Global ID (Relay)
-    try:
-        _type, decoded = from_global_id(s)
-        if decoded:
-            return decoded
-    except Exception:
-        pass
-    return s
-
-# ===== MUTATIONS PARA USUARIOS =====
-class CreateUser(graphene.Mutation):
-    """Mutation para crear un usuario."""
-    
-    class Arguments:
-        input = UserInput(required=True)
-    
-    success = graphene.Boolean()
-    user = graphene.Field(UserType)
-    message = graphene.String()
-    
-    @staticmethod
-    @login_required
-    @sanitize_mutation_input(
-        text_fields=['email', 'username', 'first_name', 'last_name', 'codigo_estudiante']
+def create_notification(user, tipo, titulo, mensaje, practice=None, document=None):
+    """Helper para crear notificaciones."""
+    return Notification.objects.create(
+        user=user,
+        tipo=tipo,
+        titulo=titulo,
+        mensaje=mensaje,
+        related_practice=practice,
+        related_document=document,
+        leido=False
     )
-    def mutate(root, info, input):
-        user = info.context.user
-        if user.role != 'ADMINISTRADOR':
-            return CreateUser(success=False, message="Solo ADMINISTRADOR puede crear usuarios")
-        
-        try:
-            with transaction.atomic():
-                # Validar dominio de email permitido
-                try:
-                    domain = input.email.split('@')[1].lower()
-                except Exception:
-                    domain = ''
-                allowed = [d.lower() for d in getattr(settings, 'ALLOWED_EMAIL_DOMAINS', [])]
-                if allowed and domain not in allowed:
-                    return CreateUser(success=False, message='Dominio de email no permitido')
-
-                # Validar duplicados (email, username)
-                if User.objects.filter(email__iexact=input.email).exists():
-                    return CreateUser(success=False, message='Email ya registrado')
-                if getattr(input, 'username', None):
-                    if User.objects.filter(username__iexact=input.username).exists():
-                        return CreateUser(success=False, message='Usuario (username) ya registrado')
-
-                new_user = User.objects.create_user(
-                    email=input.email,
-                    password=input.password,
-                    first_name=input.first_name,
-                    last_name=input.last_name,
-                    role=input.role,
-                    is_active=(True if input.is_active is None else bool(input.is_active)),
-                    username=getattr(input, 'username', None) or None,
-                )
-
-                # Si es PRACTICANTE, exigir y crear Student con código
-                if new_user.role == 'PRACTICANTE':
-                    codigo = (getattr(input, 'codigo_estudiante', '') or '').strip()
-                    if not codigo:
-                        return CreateUser(success=False, message='codigo_estudiante es obligatorio para PRACTICANTE')
-                    # Si no se proporcionó password, usar el código como contraseña
-                    if not input.password:
-                        new_user.set_password(codigo)
-                        new_user.save(update_fields=['password'])
-                    Student.objects.create(
-                        user=new_user,
-                        codigo_estudiante=codigo,
-                    )
-                # Enviar correo de bienvenida (COMENTADO - servidor de correo no configurado)
-                # if getattr(settings, 'EMAIL_ENABLED', False):
-                #     try:
-                #         send_welcome_email.delay(str(new_user.id))
-                #     except Exception:
-                #         try:
-                #             ctx = { 
-                #                 'user': new_user, 
-                #                 'frontend_url': getattr(settings, 'FRONTEND_URL', '') 
-                #             }
-                #             html_body = render_to_string('emails/user_welcome.html', ctx)
-                #             msg = EmailMultiAlternatives(
-                #                 'Bienvenido al Sistema de Prácticas',
-                #                 html_body,
-                #                 settings.DEFAULT_FROM_EMAIL,
-                #                 [new_user.email]
-                #             )
-                #             msg.attach_alternative(html_body, 'text/html')
-                #             msg.send()
-                #         except Exception:
-                #             pass
-                
-                return CreateUser(
-                    success=True,
-                    user=new_user,
-                    message="Usuario creado exitosamente"
-                )
-        except Exception as e:
-            return CreateUser(success=False, message=f"Error al crear usuario: {str(e)}")
 
 
-class UpdateUser(graphene.Mutation):
-    """Mutation para actualizar un usuario."""
+def validate_practice_status_transition(current_status, new_status):
+    """Valida transiciones de estado de prácticas."""
+    valid_transitions = {
+        'DRAFT': ['PENDING'],
+        'PENDING': ['APPROVED', 'CANCELLED'],
+        'APPROVED': ['IN_PROGRESS', 'CANCELLED'],
+        'IN_PROGRESS': ['COMPLETED', 'SUSPENDED', 'CANCELLED'],
+        'SUSPENDED': ['IN_PROGRESS', 'CANCELLED'],
+        'COMPLETED': [],
+        'CANCELLED': []
+    }
     
-    class Arguments:
-        id = graphene.ID(required=True)
-        input = UserUpdateInput(required=True)
-    
-    success = graphene.Boolean()
-    user = graphene.Field(UserType)
-    message = graphene.String()
-    
-    @staticmethod
-    @login_required
-    def mutate(root, info, id, input):
-        user = info.context.user
-        if user.role != 'ADMINISTRADOR':
-            return UpdateUser(success=False, message="Solo ADMINISTRADOR puede actualizar usuarios")
-        
-        try:
-            real_id = _resolve_real_id(id)
-            if not real_id:
-                return UpdateUser(success=False, message="ID inválido")
-            target_user = User.objects.get(id=real_id)
-            
-            # Actualizar campos (RESTRICCIONES: Administrador NO puede editar username, email, ni password)
-            if input.email:
-                return UpdateUser(success=False, message='El administrador no puede editar el email del usuario')
-            if getattr(input, 'username', None):
-                return UpdateUser(success=False, message='El administrador no puede editar el username del usuario')
-            if input.password:
-                return UpdateUser(success=False, message='El administrador no puede editar la contraseña del usuario')
-            
-            # Campos que SÍ puede editar el administrador
-            if input.first_name:
-                target_user.first_name = input.first_name
-            if input.last_name:
-                target_user.last_name = input.last_name
-            if input.role:
-                target_user.role = input.role
-            if input.is_active is not None:
-                target_user.is_active = bool(input.is_active)
-            
-            target_user.save()
-            
-            return UpdateUser(
-                success=True,
-                user=target_user,
-                message="Usuario actualizado exitosamente"
-            )
-        except User.DoesNotExist:
-            return UpdateUser(success=False, message="Usuario no encontrado")
-        except Exception as e:
-            return UpdateUser(success=False, message=f"Error al actualizar usuario: {str(e)}")
-
-
-class UpdateMyProfile(graphene.Mutation):
-    """Actualiza el perfil del usuario autenticado (solo nombres y apellidos)."""
-
-    class Arguments:
-        input = ProfileInput(required=True)
-
-    success = graphene.Boolean()
-    user = graphene.Field(UserType)
-    message = graphene.String()
-
-    @staticmethod
-    @login_required
-    @sanitize_mutation_input(
-        text_fields=['first_name', 'last_name']
-    )
-    def mutate(root, info, input):
-        user = info.context.user
-        try:
-            changed = False
-            
-            # Solo se pueden editar nombres y apellidos
-            if getattr(input, 'first_name', None):
-                user.first_name = (input.first_name or '').strip()
-                changed = True
-            if getattr(input, 'last_name', None):
-                user.last_name = (input.last_name or '').strip()
-                changed = True
-
-            if changed:
-                user.save(update_fields=['first_name','last_name','updated_at'])
-                return UpdateMyProfile(success=True, user=user, message='Perfil actualizado')
-            else:
-                return UpdateMyProfile(success=True, user=user, message='Sin cambios')
-        except Exception as e:
-            return UpdateMyProfile(success=False, message=f'Error al actualizar perfil: {str(e)}')
-
-
-# ===== AUTH MUTATIONS (LOGIN / PASSWORD RESET) =====
-# NOTA: TokenAuth y StableRefresh están OBSOLETOS - usar jwtLogin de jwt_mutations.py
-
-class ForgotPassword(graphene.Mutation):
-    """Envía un código OTP para restablecer la contraseña (con Cloudflare Turnstile y rate limit)."""
-
-    class Arguments:
-        email = graphene.String(required=True)
-        cloudflare_token = graphene.String(required=False)
-
-    success = graphene.Boolean()
-    message = graphene.String()
-    # Solo con fines de desarrollo/pruebas cuando no hay envío de email
-    code = graphene.String()
-
-    @staticmethod
-    @allow_any
-    def mutate(root, info, email, cloudflare_token=None):
-        
-        from django.core.cache import cache
-        from django.contrib.auth import get_user_model
-        from django.conf import settings
-        from django.template.loader import render_to_string
-        from django.core.mail import EmailMultiAlternatives
-        from src.infrastructure.security.cloudflare_turnstile import verify_turnstile_token
-        from src.infrastructure.security.logging import security_event_logger, get_client_ip
-        import secrets
-        
-        # Importar Django Axes de forma segura
-        try:
-            from axes.helpers import get_failure_limit, is_locked
-            from axes.utils import reset
-            AXES_AVAILABLE = True
-        except ImportError:
-            AXES_AVAILABLE = False
-
-        User = get_user_model()
-        request = info.context
-        ip_address = get_client_ip(request)
-
-        # Verificación DRF Throttling
-        throttle = ForgotPasswordThrottle()
-        if not throttle.allow_request(request, None):
-            return ForgotPassword(success=False, message='Demasiadas solicitudes. Intenta más tarde.')
-
-        # Verificación Cloudflare Turnstile
-        if getattr(settings, 'CLOUDFLARE_TURNSTILE_ENABLED', False):
-            if not verify_turnstile_token(cloudflare_token, request.META.get('REMOTE_ADDR')):
-                return ForgotPassword(success=False, message='Verificación de seguridad fallida')
-
-        # Verificar si está bloqueado por Django Axes
-        if AXES_AVAILABLE and is_locked(request, credentials={'email': email}):
-            security_event_logger.log_security_event(
-                'forgot_password_blocked',
-                f"Forgot password blocked by Axes for email: {email}",
-                extra_data={
-                    'email': email,
-                    'ip_address': ip_address,
-                    'reason': 'axes_locked'
-                },
-                severity='WARNING'
-            )
-            return ForgotPassword(success=False, message='Demasiados intentos. Intenta más tarde.')
-
-        # Rate limiting básico con DRF (5 intentos por hora por email)
-        key_req = f"forgot_pwd:{email.lower()}"
-        current = cache.get(key_req, 0)
-        if current >= 5:
-            return ForgotPassword(success=False, message='Demasiadas solicitudes. Intenta en 1 hora.')
-
-        # Dominio permitido
-        try:
-            domain = email.split('@')[1].lower()
-        except Exception:
-            domain = ''
-        allowed = [d.lower() for d in getattr(settings, 'ALLOWED_EMAIL_DOMAINS', [])]
-        if allowed and domain not in allowed:
-            # No revelar si existe o no
-            return ForgotPassword(success=True, message='Si el correo existe, se enviará un código')
-
-        UserModel = get_user_model()
-        try:
-            user = UserModel.objects.get(email__iexact=email)
-        except UserModel.DoesNotExist:
-            
-            # Log intento fallido y registrar en Axes
-            security_event_logger.log_security_event(
-                'forgot_password_failed',
-                f"Forgot password attempt for non-existent email: {email}",
-                extra_data={
-                    'email': email,
-                    'ip_address': ip_address,
-                    'reason': 'user_not_found'
-                },
-                severity='WARNING'
-            )
-            
-            # Incrementar contador de rate limiting
-            cache.set(key_req, current + 1, timeout=3600)
-            
-            # Evitar enumeración de usuarios
-            return ForgotPassword(success=True, message='Si el correo existe, se enviará un código')
-
-        # Generar código OTP de 6 dígitos, válido 10 min
-        code = str(secrets.randbelow(1000000)).zfill(6)
-        cache.set(f"pwdotp:{email.lower()}", code, timeout=600)
-        
-        # Incrementar contador de rate limiting (también para exitosos)
-        cache.set(key_req, current + 1, timeout=3600)
-        
-        # Log intento exitoso
-        security_event_logger.log_security_event(
-            'forgot_password_success',
-            f"Forgot password code generated for email: {email}",
-            user_id=str(user.id),
-            extra_data={
-                'email': email,
-                'ip_address': ip_address
-            },
-            severity='INFO'
+    if new_status not in valid_transitions.get(current_status, []):
+        raise GraphQLError(
+            f'No se puede cambiar de {current_status} a {new_status}'
         )
-        
-
-        # Enviar email con el código (solo si está habilitado)
-        if getattr(settings, 'EMAIL_ENABLED', False):
-            try:
-                ctx = { 'user': user, 'code': code }
-                html_body = render_to_string('emails/password_reset_code.html', ctx)
-                msg = EmailMultiAlternatives('Código para restablecer contraseña', html_body, settings.DEFAULT_FROM_EMAIL, [email])
-                msg.attach_alternative(html_body, 'text/html')
-                msg.send()
-            except Exception:
-                pass
-
-        # SIEMPRE mostrar código en desarrollo (cuando EMAIL no está habilitado)
-        email_enabled = getattr(settings, 'EMAIL_ENABLED', False)
-        debug_mode = getattr(settings, 'DEBUG', False)
-        
-        # Mostrar código si EMAIL está deshabilitado O si estamos en DEBUG
-        show_code = (not email_enabled) or debug_mode
-        
-        if show_code:
-            message = f'✅ Código generado: {code}. También visible en terminal del backend.'
-        else:
-            message = 'Si el correo existe, se envió un código de verificación'
-            
-        return ForgotPassword(success=True, message=message, code=code if show_code else None)
 
 
-class ResetPasswordWithCode(graphene.Mutation):
-    """Restablece contraseña verificando un código OTP enviado al correo."""
+# ============================================================================
+# USER MUTATIONS
+# ============================================================================
 
+class CreateUserMutation(graphene.Mutation):
+    """Crear nuevo usuario (Admin/Secretaria)."""
+    
     class Arguments:
         email = graphene.String(required=True)
-        code = graphene.String(required=True)
-        new_password = graphene.String(required=True)
-        confirm_password = graphene.String(required=True)
-        cloudflare_token = graphene.String(required=False)
-
+        username = graphene.String(required=True)
+        first_name = graphene.String(required=True)
+        last_name = graphene.String(required=True)
+        password = graphene.String(required=True)
+        role = graphene.String(required=True)
+    
     success = graphene.Boolean()
     message = graphene.String()
-
-    @staticmethod
-    @allow_any
-    def mutate(root, info, email, code, new_password, confirm_password, cloudflare_token=None):
-        request = info.context
-        # Cloudflare Turnstile no requerido para Reset Password
-
-        if new_password != confirm_password:
-            return ResetPasswordWithCode(success=False, message='Las contraseñas no coinciden')
-        if len(new_password) < 8:
-            return ResetPasswordWithCode(success=False, message='La contraseña debe tener al menos 8 caracteres')
-
-        cached_code = cache.get(f"pwdotp:{email.lower()}")
-        if not cached_code or cached_code != code:
-            return ResetPasswordWithCode(success=False, message='Código inválido o expirado')
-
-        UserModel = get_user_model()
-        try:
-            user = UserModel.objects.get(email__iexact=email)
-        except UserModel.DoesNotExist:
-            return ResetPasswordWithCode(success=False, message='Usuario no encontrado')
-
-        user.set_password(new_password)
-        user.save(update_fields=['password'])
-        cache.delete(f"pwdotp:{email.lower()}")
-        return ResetPasswordWithCode(success=True, message='Contraseña actualizada correctamente')
-
-
-class ChangePassword(graphene.Mutation):
-    """Cambio de contraseña para usuario autenticado requiriendo contraseña actual."""
-
-    class Arguments:
-        current_password = graphene.String(required=True)
-        new_password = graphene.String(required=True)
-        confirm_password = graphene.String(required=True)
-
-    success = graphene.Boolean()
-    message = graphene.String()
-
+    user = graphene.Field(UserType)
+    
     @staticmethod
     @login_required
-    def mutate(root, info, current_password, new_password, confirm_password):
-        user = info.context.user
-        if new_password != confirm_password:
-            return ChangePassword(success=False, message='Las contraseñas no coinciden')
-        if len(new_password) < 8:
-            return ChangePassword(success=False, message='La contraseña debe tener al menos 8 caracteres')
-        if not user.check_password(current_password):
-            return ChangePassword(success=False, message='La contraseña actual es incorrecta')
-        user.set_password(new_password)
-        user.save(update_fields=['password'])
-        return ChangePassword(success=True, message='Contraseña actualizada correctamente')
-
-
-class DeleteUser(graphene.Mutation):
-    """Elimina un usuario (solo ADMINISTRADOR)."""
-
-    class Arguments:
-        id = graphene.ID(required=True)
-
-    success = graphene.Boolean()
-    message = graphene.String()
-
-    @staticmethod
-    @login_required
-    def mutate(root, info, id):
-        user = info.context.user
-        if user.role != 'ADMINISTRADOR':
-            return DeleteUser(success=False, message='Solo ADMINISTRADOR puede eliminar usuarios')
+    @staff_required
+    def mutate(root, info, email, username, first_name, last_name, password, role):
+        """Crear usuario."""
         try:
-            real_id = _resolve_real_id(id)
-            if not real_id:
-                return DeleteUser(success=False, message='ID inválido')
-            target = User.objects.get(id=real_id)
-            target.delete()
-            return DeleteUser(success=True, message='Usuario eliminado correctamente')
-        except User.DoesNotExist:
-            return DeleteUser(success=False, message='Usuario no encontrado')
+            # Validar que el email no exista
+            if User.objects.filter(email=email).exists():
+                return CreateUserMutation(
+                    success=False,
+                    message='El email ya está registrado'
+                )
+            
+            # Validar rol
+            valid_roles = ['PRACTICANTE', 'SUPERVISOR', 'COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']
+            if role not in valid_roles:
+                return CreateUserMutation(
+                    success=False,
+                    message=f'Rol inválido. Opciones: {", ".join(valid_roles)}'
+                )
+            
+            # Crear usuario
+            user = User.objects.create_user(
+                email=email,
+                username=username,
+                first_name=first_name,
+                last_name=last_name,
+                password=password,
+                role=role
+            )
+            
+            return CreateUserMutation(
+                success=True,
+                message='Usuario creado exitosamente',
+                user=user
+            )
+            
         except Exception as e:
-            return DeleteUser(success=False, message=f'Error al eliminar usuario: {str(e)}')
+            return CreateUserMutation(
+                success=False,
+                message=f'Error al crear usuario: {str(e)}'
+            )
 
 
-class Logout(graphene.Mutation):
-    """Cierra sesión: revoca refresh token y limpia cookies HttpOnly."""
-
+class UpdateUserMutation(graphene.Mutation):
+    """Actualizar usuario."""
+    
+    class Arguments:
+        user_id = graphene.ID(required=True)
+        first_name = graphene.String()
+        last_name = graphene.String()
+        is_active = graphene.Boolean()
+        role = graphene.String()
+    
     success = graphene.Boolean()
     message = graphene.String()
-
-    class Arguments:
-        refresh_token = graphene.String(required=False)
-
+    user = graphene.Field(UserType)
+    
     @staticmethod
-    @allow_any
-    def mutate(root, info, refresh_token=None):
-        request = info.context
-        # Intentar obtener refresh token desde argumento o cookie
-        token = refresh_token or request.COOKIES.get(getattr(settings, 'GRAPHQL_JWT', {}).get('JWT_REFRESH_TOKEN_COOKIE_NAME', 'JWT_REFRESH_TOKEN'))
-        revoked = False
-        if token and GQLRefreshToken is not None:
-            try:
-                obj = GQLRefreshToken.objects.get(token=token)
-                obj.revoke()
-                revoked = True
-            except GQLRefreshToken.DoesNotExist:
-                pass
-            except Exception:
-                pass
-        # Señalar al view para limpiar cookies
-        setattr(request, '_clear_jwt_cookies', True)
-        return Logout(success=True, message='Sesión cerrada' + (' y token revocado' if revoked else ''))
+    @login_required
+    def mutate(root, info, user_id, **kwargs):
+        """Actualizar usuario."""
+        current_user = info.context.user
+        
+        try:
+            user = User.objects.get(id=user_id)
+            
+            # Solo Admin/Secretaria pueden editar otros usuarios
+            if user.id != current_user.id and not is_staff(current_user):
+                return UpdateUserMutation(
+                    success=False,
+                    message='No tienes permiso para editar este usuario'
+                )
+            
+            # Actualizar campos
+            if 'first_name' in kwargs:
+                user.first_name = kwargs['first_name']
+            if 'last_name' in kwargs:
+                user.last_name = kwargs['last_name']
+            
+            # Solo staff puede cambiar is_active y role
+            if is_staff(current_user):
+                if 'is_active' in kwargs:
+                    user.is_active = kwargs['is_active']
+                if 'role' in kwargs:
+                    user.role = kwargs['role']
+            
+            user.save()
+            
+            return UpdateUserMutation(
+                success=True,
+                message='Usuario actualizado exitosamente',
+                user=user
+            )
+            
+        except User.DoesNotExist:
+            return UpdateUserMutation(
+                success=False,
+                message='Usuario no encontrado'
+            )
+        except Exception as e:
+            return UpdateUserMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
 
 
-# ===== MUTATIONS PARA ESTUDIANTES =====
-class CreateStudent(graphene.Mutation):
-    """Mutation para crear un estudiante."""
+class DeleteUserMutation(graphene.Mutation):
+    """Eliminar usuario (solo Admin)."""
     
     class Arguments:
-        input = StudentInput(required=True)
+        user_id = graphene.ID(required=True)
     
     success = graphene.Boolean()
+    message = graphene.String()
+    
+    @staticmethod
+    @login_required
+    @administrador_required
+    def mutate(root, info, user_id):
+        """Eliminar usuario."""
+        try:
+            user = User.objects.get(id=user_id)
+            user_email = user.email
+            user.delete()
+            
+            return DeleteUserMutation(
+                success=True,
+                message=f'Usuario {user_email} eliminado exitosamente'
+            )
+            
+        except User.DoesNotExist:
+            return DeleteUserMutation(
+                success=False,
+                message='Usuario no encontrado'
+            )
+        except Exception as e:
+            return DeleteUserMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+class ChangePasswordMutation(graphene.Mutation):
+    """Cambiar contraseña."""
+    
+    class Arguments:
+        old_password = graphene.String(required=True)
+        new_password = graphene.String(required=True)
+        new_password_confirm = graphene.String(required=True)
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    
+    @staticmethod
+    @login_required
+    def mutate(root, info, old_password, new_password, new_password_confirm):
+        """Cambiar contraseña del usuario actual."""
+        user = info.context.user
+        
+        try:
+            # Validar contraseña actual
+            if not user.check_password(old_password):
+                return ChangePasswordMutation(
+                    success=False,
+                    message='Contraseña actual incorrecta'
+                )
+            
+            # Validar que las nuevas coincidan
+            if new_password != new_password_confirm:
+                return ChangePasswordMutation(
+                    success=False,
+                    message='Las contraseñas nuevas no coinciden'
+                )
+            
+            # Validar longitud mínima
+            if len(new_password) < 8:
+                return ChangePasswordMutation(
+                    success=False,
+                    message='La contraseña debe tener al menos 8 caracteres'
+                )
+            
+            # Cambiar contraseña
+            user.set_password(new_password)
+            user.save()
+            
+            return ChangePasswordMutation(
+                success=True,
+                message='Contraseña actualizada exitosamente'
+            )
+            
+        except Exception as e:
+            return ChangePasswordMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+# ============================================================================
+# STUDENT MUTATIONS
+# ============================================================================
+
+class CreateStudentMutation(graphene.Mutation):
+    """Crear nuevo estudiante (crea User + Student)."""
+    
+    class Arguments:
+        email = graphene.String(required=True)
+        first_name = graphene.String(required=True)
+        last_name = graphene.String(required=True)
+        password = graphene.String(required=True)
+        codigo_estudiante = graphene.String(required=True)
+        escuela = graphene.String(required=True)
+        semestre_actual = graphene.Int(required=True)
+        promedio_ponderado = graphene.Float(required=True)
+    
+    success = graphene.Boolean()
+    message = graphene.String()
     student = graphene.Field(StudentType)
-    message = graphene.String()
     
     @staticmethod
     @login_required
-    def mutate(root, info, input):
-        user = info.context.user
-        if user.role not in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
-            return CreateStudent(success=False, message="Sin permisos para crear estudiantes")
+    def mutate(root, info, **kwargs):
+        """Crear estudiante."""
+        current_user = info.context.user
+        
+        # Validar permisos
+        if not can_create_student(current_user):
+            return CreateStudentMutation(
+                success=False,
+                message='No tienes permiso para crear estudiantes'
+            )
         
         try:
             with transaction.atomic():
-                target_user = User.objects.get(id=input.user_id)
-                if target_user.role != UserRole.PRACTICANTE.value:
-                    return CreateStudent(success=False, message="El usuario debe tener rol PRACTICANTE")
+                # Validar email @upeu.edu.pe
+                email = kwargs['email']
+                if not email.endswith('@upeu.edu.pe'):
+                    return CreateStudentMutation(
+                        success=False,
+                        message='El email debe ser @upeu.edu.pe'
+                    )
                 
+                # Validar código formato YYYYNNNNNN
+                codigo = kwargs['codigo_estudiante']
+                if len(codigo) != 10 or not codigo.isdigit():
+                    return CreateStudentMutation(
+                        success=False,
+                        message='Código debe tener formato YYYYNNNNNN (2020000001)'
+                    )
+                
+                # Validar semestre
+                semestre = kwargs['semestre_actual']
+                if semestre < 1 or semestre > 12:
+                    return CreateStudentMutation(
+                        success=False,
+                        message='Semestre debe estar entre 1 y 12'
+                    )
+                
+                # Validar promedio
+                promedio = kwargs['promedio_ponderado']
+                if promedio < 0 or promedio > 20:
+                    return CreateStudentMutation(
+                        success=False,
+                        message='Promedio debe estar entre 0 y 20'
+                    )
+                
+                # Crear usuario
+                user = User.objects.create_user(
+                    email=email,
+                    username=codigo,
+                    first_name=kwargs['first_name'],
+                    last_name=kwargs['last_name'],
+                    password=kwargs['password'],
+                    role='PRACTICANTE'
+                )
+                
+                # Crear estudiante
                 student = Student.objects.create(
-                    user=target_user,
-                    codigo_estudiante=input.codigo_estudiante,
-                    documento_tipo=input.documento_tipo,
-                    documento_numero=input.documento_numero,
-                    telefono=input.telefono,
-                    direccion=input.direccion,
-                    carrera=input.carrera,
-                    semestre_actual=input.semestre_actual,
-                    promedio_ponderado=input.promedio_ponderado,
+                    user=user,
+                    codigo_estudiante=codigo,
+                    escuela=kwargs['escuela'],
+                    semestre_actual=semestre,
+                    promedio_ponderado=promedio
                 )
                 
-                return CreateStudent(
+                return CreateStudentMutation(
                     success=True,
-                    student=student,
-                    message="Estudiante creado exitosamente"
+                    message='Estudiante creado exitosamente',
+                    student=student
                 )
-        except User.DoesNotExist:
-            return CreateStudent(success=False, message="Usuario no encontrado")
+                
         except Exception as e:
-            return CreateStudent(success=False, message=f"Error al crear estudiante: {str(e)}")
+            return CreateStudentMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
 
 
-# ===== MUTATIONS PARA EMPRESAS =====
-class CreateCompany(graphene.Mutation):
-    """Mutation para crear una empresa."""
+class UpdateStudentMutation(graphene.Mutation):
+    """Actualizar datos de estudiante."""
     
     class Arguments:
-        input = CompanyInput(required=True)
+        student_id = graphene.ID(required=True)
+        escuela = graphene.String()
+        semestre_actual = graphene.Int()
+        promedio_ponderado = graphene.Float()
     
     success = graphene.Boolean()
-    company = graphene.Field(CompanyType)
+    message = graphene.String()
+    student = graphene.Field(StudentType)
+    
+    @staticmethod
+    @login_required
+    def mutate(root, info, student_id, **kwargs):
+        """Actualizar estudiante."""
+        current_user = info.context.user
+        
+        try:
+            student = Student.objects.get(id=student_id)
+            
+            # Validar permisos
+            if not can_update_student(current_user, student):
+                return UpdateStudentMutation(
+                    success=False,
+                    message='No tienes permiso para actualizar este estudiante'
+                )
+            
+            # Actualizar campos
+            if 'escuela' in kwargs:
+                student.escuela = kwargs['escuela']
+            
+            if 'semestre_actual' in kwargs:
+                semestre = kwargs['semestre_actual']
+                if semestre < 1 or semestre > 12:
+                    return UpdateStudentMutation(
+                        success=False,
+                        message='Semestre debe estar entre 1 y 12'
+                    )
+                student.semestre_actual = semestre
+            
+            if 'promedio_ponderado' in kwargs:
+                promedio = kwargs['promedio_ponderado']
+                if promedio < 0 or promedio > 20:
+                    return UpdateStudentMutation(
+                        success=False,
+                        message='Promedio debe estar entre 0 y 20'
+                    )
+                student.promedio_ponderado = promedio
+            
+            student.save()
+            
+            return UpdateStudentMutation(
+                success=True,
+                message='Estudiante actualizado exitosamente',
+                student=student
+            )
+            
+        except Student.DoesNotExist:
+            return UpdateStudentMutation(
+                success=False,
+                message='Estudiante no encontrado'
+            )
+        except Exception as e:
+            return UpdateStudentMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+class DeleteStudentMutation(graphene.Mutation):
+    """Eliminar estudiante (solo Admin)."""
+    
+    class Arguments:
+        student_id = graphene.ID(required=True)
+    
+    success = graphene.Boolean()
     message = graphene.String()
     
     @staticmethod
     @login_required
-    @sanitize_mutation_input(
-        text_fields=['ruc', 'razon_social', 'nombre_comercial', 'direccion', 'telefono', 'email', 'sector_economico', 'tamano_empresa']
-    )
-    def mutate(root, info, input):
-        user = info.context.user
-        if user.role not in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
-            return CreateCompany(success=False, message="Sin permisos para crear empresas")
+    @administrador_required
+    def mutate(root, info, student_id):
+        """Eliminar estudiante."""
+        try:
+            student = Student.objects.get(id=student_id)
+            codigo = student.codigo_estudiante
+            student.delete()
+            
+            return DeleteStudentMutation(
+                success=True,
+                message=f'Estudiante {codigo} eliminado exitosamente'
+            )
+            
+        except Student.DoesNotExist:
+            return DeleteStudentMutation(
+                success=False,
+                message='Estudiante no encontrado'
+            )
+        except Exception as e:
+            return DeleteStudentMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+# ============================================================================
+# COMPANY MUTATIONS
+# ============================================================================
+
+class CreateCompanyMutation(graphene.Mutation):
+    """Crear nueva empresa."""
+    
+    class Arguments:
+        ruc = graphene.String(required=True)
+        razon_social = graphene.String(required=True)
+        nombre_comercial = graphene.String()
+        direccion = graphene.String(required=True)
+        telefono = graphene.String(required=True)
+        email = graphene.String(required=True)
+        sector_economico = graphene.String(required=True)
+        tamano_empresa = graphene.String(required=True, name='tamanoEmpresa')
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    company = graphene.Field(CompanyType)
+    
+    @staticmethod
+    @login_required
+    def mutate(root, info, **kwargs):
+        """Crear empresa."""
+        current_user = info.context.user
+        
+        # Validar permisos
+        if not can_create_company(current_user):
+            return CreateCompanyMutation(
+                success=False,
+                message='No tienes permiso para crear empresas'
+            )
         
         try:
-            with transaction.atomic():
-                company = Company.objects.create(
-                    ruc=input.ruc,
-                    razon_social=input.razon_social,
-                    nombre_comercial=input.nombre_comercial,
-                    direccion=input.direccion,
-                    telefono=input.telefono,
-                    email=input.email,
-                    sector_economico=input.sector_economico,
-                    tamaño_empresa=input.tamano_empresa,
-                    status=CompanyStatus.PENDING_VALIDATION.value,
+            # Validar RUC (11 dígitos)
+            ruc = kwargs['ruc']
+            if len(ruc) != 11 or not ruc.isdigit():
+                return CreateCompanyMutation(
+                    success=False,
+                    message='RUC debe tener 11 dígitos numéricos'
                 )
-                
-                return CreateCompany(
-                    success=True,
-                    company=company,
-                    message="Empresa creada exitosamente"
+            
+            # Validar RUC único
+            if Company.objects.filter(ruc=ruc).exists():
+                return CreateCompanyMutation(
+                    success=False,
+                    message='El RUC ya está registrado'
                 )
+            
+            # Validar tamaño empresa
+            valid_sizes = ['MICRO', 'PEQUEÑA', 'MEDIANA', 'GRANDE']
+            tamano_empresa = kwargs.pop('tamano_empresa', None)
+            if tamano_empresa and tamano_empresa not in valid_sizes:
+                return CreateCompanyMutation(
+                    success=False,
+                    message=f'Tamaño inválido. Opciones: {", ".join(valid_sizes)}'
+                )
+            
+            # Crear empresa con estado PENDING_VALIDATION
+            company = Company.objects.create(
+                status='PENDING_VALIDATION',
+                tamaño_empresa=tamano_empresa,
+                **kwargs
+            )
+            
+            # Notificar a coordinadores
+            coordinadores = User.objects.filter(role='COORDINADOR', is_active=True)
+            for coord in coordinadores:
+                create_notification(
+                    user=coord,
+                    tipo='INFO',
+                    titulo='Nueva empresa registrada',
+                    mensaje=f'La empresa {company.razon_social} está pendiente de validación'
+                )
+            
+            return CreateCompanyMutation(
+                success=True,
+                message='Empresa creada exitosamente (pendiente de validación)',
+                company=company
+            )
+            
         except Exception as e:
-            return CreateCompany(success=False, message=f"Error al crear empresa: {str(e)}")
+            return CreateCompanyMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
 
 
-class ValidateCompany(graphene.Mutation):
-    """Mutation para validar una empresa."""
+class UpdateCompanyMutation(graphene.Mutation):
+    """Actualizar empresa."""
     
     class Arguments:
         company_id = graphene.ID(required=True)
-        approve = graphene.Boolean(required=True)
-        observations = graphene.String()
+        razon_social = graphene.String()
+        nombre_comercial = graphene.String()
+        direccion = graphene.String()
+        telefono = graphene.String()
+        email = graphene.String()
+        sector_economico = graphene.String()
+        tamano_empresa = graphene.String(name='tamanoEmpresa')
     
     success = graphene.Boolean()
-    company = graphene.Field(CompanyType)
     message = graphene.String()
+    company = graphene.Field(CompanyType)
     
     @staticmethod
     @login_required
-    def mutate(root, info, company_id, approve, observations=None):
-        user = info.context.user
-        if user.role not in ['COORDINADOR', 'ADMINISTRADOR']:
-            return ValidateCompany(success=False, message="Sin permisos para validar empresas")
+    def mutate(root, info, company_id, **kwargs):
+        """Actualizar empresa."""
+        current_user = info.context.user
         
         try:
             company = Company.objects.get(id=company_id)
             
-            if approve:
-                company.status = CompanyStatus.ACTIVE.value
-                company.fecha_validacion = timezone.now()
-                message = "Empresa aprobada exitosamente"
-            else:
-                company.status = CompanyStatus.SUSPENDED.value
-                message = "Empresa rechazada"
+            # Validar permisos
+            if not can_update_company(current_user, company):
+                return UpdateCompanyMutation(
+                    success=False,
+                    message='No tienes permiso para actualizar esta empresa'
+                )
+            
+            # Map GraphQL field name back to Django model field
+            if 'tamano_empresa' in kwargs:
+                kwargs['tamaño_empresa'] = kwargs.pop('tamano_empresa')
+            
+            # Actualizar campos
+            for field, value in kwargs.items():
+                setattr(company, field, value)
             
             company.save()
             
-            return ValidateCompany(
+            return UpdateCompanyMutation(
                 success=True,
-                company=company,
-                message=message
+                message='Empresa actualizada exitosamente',
+                company=company
             )
+            
         except Company.DoesNotExist:
-            return ValidateCompany(success=False, message="Empresa no encontrada")
+            return UpdateCompanyMutation(
+                success=False,
+                message='Empresa no encontrada'
+            )
         except Exception as e:
-            return ValidateCompany(success=False, message=f"Error al validar empresa: {str(e)}")
+            return UpdateCompanyMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
 
 
-# ===== MUTATIONS PARA PRÁCTICAS =====
-class CreatePractice(graphene.Mutation):
-    """Mutation para crear una práctica."""
+class ValidateCompanyMutation(graphene.Mutation):
+    """Validar o rechazar empresa (solo Coordinador)."""
     
     class Arguments:
-        input = PracticeInput(required=True)
+        company_id = graphene.ID(required=True)
+        status = graphene.String(required=True)
+        observaciones = graphene.String()
     
     success = graphene.Boolean()
-    practice = graphene.Field(PracticeType)
+    message = graphene.String()
+    company = graphene.Field(CompanyType)
+    
+    @staticmethod
+    @login_required
+    @coordinador_required
+    def mutate(root, info, company_id, status, observaciones=None):
+        """Validar empresa."""
+        try:
+            company = Company.objects.get(id=company_id)
+            
+            # Validar status
+            valid_statuses = ['ACTIVE', 'SUSPENDED', 'BLACKLISTED']
+            if status not in valid_statuses:
+                return ValidateCompanyMutation(
+                    success=False,
+                    message=f'Estado inválido. Opciones: {", ".join(valid_statuses)}'
+                )
+            
+            company.status = status
+            company.save()
+            
+            # Notificar (si la empresa tiene contacto registrado)
+            # TODO: Implementar notificación a empresa si tiene usuario contacto
+            
+            return ValidateCompanyMutation(
+                success=True,
+                message=f'Empresa validada como {status}',
+                company=company
+            )
+            
+        except Company.DoesNotExist:
+            return ValidateCompanyMutation(
+                success=False,
+                message='Empresa no encontrada'
+            )
+        except Exception as e:
+            return ValidateCompanyMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+class DeleteCompanyMutation(graphene.Mutation):
+    """Eliminar empresa (solo Admin)."""
+    
+    class Arguments:
+        company_id = graphene.ID(required=True)
+    
+    success = graphene.Boolean()
     message = graphene.String()
     
     @staticmethod
     @login_required
-    @sanitize_mutation_input(
-        text_fields=['titulo', 'area_practica', 'modalidad'],
-        rich_text_fields=['descripcion']
-    )
-    def mutate(root, info, input):
-        user = info.context.user
+    @administrador_required
+    def mutate(root, info, company_id):
+        """Eliminar empresa."""
+        try:
+            company = Company.objects.get(id=company_id)
+            razon_social = company.razon_social
+            company.delete()
+            
+            return DeleteCompanyMutation(
+                success=True,
+                message=f'Empresa {razon_social} eliminada exitosamente'
+            )
+            
+        except Company.DoesNotExist:
+            return DeleteCompanyMutation(
+                success=False,
+                message='Empresa no encontrada'
+            )
+        except Exception as e:
+            return DeleteCompanyMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+# ============================================================================
+# SUPERVISOR MUTATIONS
+# ============================================================================
+
+class CreateSupervisorMutation(graphene.Mutation):
+    """Crear nuevo supervisor (crea User + Supervisor)."""
+    
+    class Arguments:
+        email = graphene.String(required=True)
+        first_name = graphene.String(required=True)
+        last_name = graphene.String(required=True)
+        password = graphene.String(required=True)
+        company_id = graphene.ID(required=True)
+        documento_tipo = graphene.String(required=True)
+        documento_numero = graphene.String(required=True)
+        cargo = graphene.String(required=True)
+        telefono = graphene.String(required=True)
+        anos_experiencia = graphene.Int(name='anosExperiencia')
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    supervisor = graphene.Field(SupervisorType)
+    
+    @staticmethod
+    @login_required
+    def mutate(root, info, company_id, **kwargs):
+        """Crear supervisor."""
+        current_user = info.context.user
+        
+        # Validar permisos
+        if not can_create_supervisor(current_user):
+            return CreateSupervisorMutation(
+                success=False,
+                message='No tienes permiso para crear supervisores'
+            )
         
         try:
             with transaction.atomic():
-                # Verificar permisos
-                if user.role == UserRole.PRACTICANTE.value:
-                    # El estudiante puede crear su propia práctica
-                    student = getattr(user, 'student_profile', None)
-                    if not student or str(student.id) != input.student_id:
-                        return CreatePractice(success=False, message="Solo puedes crear tu propia práctica")
-                elif user.role not in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
-                    return CreatePractice(success=False, message="Sin permisos para crear prácticas")
+                # Validar empresa
+                try:
+                    company = Company.objects.get(id=company_id)
+                    if company.status not in ['ACTIVE', 'PENDING_VALIDATION']:
+                        return CreateSupervisorMutation(
+                            success=False,
+                            message='La empresa no puede recibir supervisores'
+                        )
+                except Company.DoesNotExist:
+                    return CreateSupervisorMutation(
+                        success=False,
+                        message='Empresa no encontrada'
+                    )
                 
-                # Obtener objetos relacionados
-                student = Student.objects.get(id=input.student_id)
-                company = Company.objects.get(id=input.company_id)
-                supervisor = None
-                if input.supervisor_id:
-                    supervisor = Supervisor.objects.get(id=input.supervisor_id)
+                # Validar años experiencia (map from GraphQL param to model field)
+                anos_exp = kwargs.get('anos_experiencia')
+                if anos_exp and (anos_exp < 0 or anos_exp > 60):
+                    return CreateSupervisorMutation(
+                        success=False,
+                        message='Años de experiencia debe estar entre 0 y 60'
+                    )
                 
-                # Validar elegibilidad del estudiante
-                if student.semestre_actual < 6:
-                    return CreatePractice(success=False, message="Estudiante debe estar en semestre 6 o superior")
+                # Crear usuario
+                user = User.objects.create_user(
+                    email=kwargs['email'],
+                    username=kwargs['email'].split('@')[0],
+                    first_name=kwargs['first_name'],
+                    last_name=kwargs['last_name'],
+                    password=kwargs['password'],
+                    role='SUPERVISOR'
+                )
                 
-                if student.promedio_ponderado < 12.0:
-                    return CreatePractice(success=False, message="Estudiante debe tener promedio mínimo de 12.0")
+                # Crear supervisor (map back to Django model field)
+                supervisor = Supervisor.objects.create(
+                    user=user,
+                    company=company,
+                    documento_tipo=kwargs['documento_tipo'],
+                    documento_numero=kwargs['documento_numero'],
+                    cargo=kwargs['cargo'],
+                    telefono=kwargs['telefono'],
+                    años_experiencia=anos_exp
+                )
                 
-                # Crear práctica
+                return CreateSupervisorMutation(
+                    success=True,
+                    message='Supervisor creado exitosamente',
+                    supervisor=supervisor
+                )
+                
+        except Exception as e:
+            return CreateSupervisorMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+class UpdateSupervisorMutation(graphene.Mutation):
+    """Actualizar supervisor."""
+    
+    class Arguments:
+        supervisor_id = graphene.ID(required=True)
+        documento_tipo = graphene.String()
+        documento_numero = graphene.String()
+        cargo = graphene.String()
+        telefono = graphene.String()
+        anos_experiencia = graphene.Int(name='anosExperiencia')
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    supervisor = graphene.Field(SupervisorType)
+    
+    @staticmethod
+    @login_required
+    def mutate(root, info, supervisor_id, **kwargs):
+        """Actualizar supervisor."""
+        current_user = info.context.user
+        
+        try:
+            supervisor = Supervisor.objects.get(id=supervisor_id)
+            
+            # Validar permisos
+            if not can_update_supervisor(current_user, supervisor):
+                return UpdateSupervisorMutation(
+                    success=False,
+                    message='No tienes permiso para actualizar este supervisor'
+                )
+            
+            # Validar años experiencia (map from GraphQL param)
+            if 'anos_experiencia' in kwargs:
+                anos_exp = kwargs['anos_experiencia']
+                if anos_exp and (anos_exp < 0 or anos_exp > 60):
+                    return UpdateSupervisorMutation(
+                        success=False,
+                        message='Años de experiencia debe estar entre 0 y 60'
+                    )
+                # Map back to Django model field
+                kwargs['años_experiencia'] = kwargs.pop('anos_experiencia')
+            
+            # Actualizar campos
+            for field, value in kwargs.items():
+                setattr(supervisor, field, value)
+            
+            supervisor.save()
+            
+            return UpdateSupervisorMutation(
+                success=True,
+                message='Supervisor actualizado exitosamente',
+                supervisor=supervisor
+            )
+            
+        except Supervisor.DoesNotExist:
+            return UpdateSupervisorMutation(
+                success=False,
+                message='Supervisor no encontrado'
+            )
+        except Exception as e:
+            return UpdateSupervisorMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+class DeleteSupervisorMutation(graphene.Mutation):
+    """Eliminar supervisor (solo Admin)."""
+    
+    class Arguments:
+        supervisor_id = graphene.ID(required=True)
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    
+    @staticmethod
+    @login_required
+    @administrador_required
+    def mutate(root, info, supervisor_id):
+        """Eliminar supervisor."""
+        try:
+            supervisor = Supervisor.objects.get(id=supervisor_id)
+            nombre = supervisor.user.get_full_name()
+            supervisor.delete()
+            
+            return DeleteSupervisorMutation(
+                success=True,
+                message=f'Supervisor {nombre} eliminado exitosamente'
+            )
+            
+        except Supervisor.DoesNotExist:
+            return DeleteSupervisorMutation(
+                success=False,
+                message='Supervisor no encontrado'
+            )
+        except Exception as e:
+            return DeleteSupervisorMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+# ============================================================================
+# PRACTICE MUTATIONS
+# ============================================================================
+
+class CreatePracticeMutation(graphene.Mutation):
+    """Crear nueva práctica."""
+    
+    class Arguments:
+        student_id = graphene.ID(required=True)
+        company_id = graphene.ID(required=True)
+        supervisor_id = graphene.ID(required=True)
+        tipo = graphene.String(required=True)
+        area = graphene.String(required=True)
+        fecha_inicio = graphene.Date(required=True)
+        fecha_fin = graphene.Date(required=True)
+        horas_requeridas = graphene.Int(required=True)
+        descripcion_actividades = graphene.String()
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    practice = graphene.Field(PracticeType)
+    
+    @staticmethod
+    @login_required
+    def mutate(root, info, student_id, company_id, supervisor_id, **kwargs):
+        """Crear práctica."""
+        current_user = info.context.user
+        
+        # Validar permisos
+        if not can_create_practice(current_user):
+            return CreatePracticeMutation(
+                success=False,
+                message='No tienes permiso para crear prácticas'
+            )
+        
+        try:
+            with transaction.atomic():
+                # Validar student
+                try:
+                    student = Student.objects.get(id=student_id)
+                    if student.user.id != current_user.id and current_user.role not in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
+                        return CreatePracticeMutation(
+                            success=False,
+                            message='No puedes crear prácticas para otro estudiante'
+                        )
+                except Student.DoesNotExist:
+                    return CreatePracticeMutation(
+                        success=False,
+                        message='Estudiante no encontrado'
+                    )
+                
+                # Validar company
+                try:
+                    company = Company.objects.get(id=company_id)
+                    if company.status != 'ACTIVE':
+                        return CreatePracticeMutation(
+                            success=False,
+                            message='La empresa debe estar activa'
+                        )
+                except Company.DoesNotExist:
+                    return CreatePracticeMutation(
+                        success=False,
+                        message='Empresa no encontrada'
+                    )
+                
+                # Validar supervisor
+                try:
+                    supervisor = Supervisor.objects.get(id=supervisor_id)
+                    if supervisor.company.id != company.id:
+                        return CreatePracticeMutation(
+                            success=False,
+                            message='El supervisor debe pertenecer a la empresa'
+                        )
+                except Supervisor.DoesNotExist:
+                    return CreatePracticeMutation(
+                        success=False,
+                        message='Supervisor no encontrado'
+                    )
+                
+                # Validar tipo
+                valid_tipos = ['PREPROFESIONAL', 'PROFESIONAL']
+                if kwargs['tipo'] not in valid_tipos:
+                    return CreatePracticeMutation(
+                        success=False,
+                        message=f'Tipo inválido. Opciones: {", ".join(valid_tipos)}'
+                    )
+                
+                # Validar horas
+                horas = kwargs['horas_requeridas']
+                if horas < 480 or horas > 2000:
+                    return CreatePracticeMutation(
+                        success=False,
+                        message='Horas requeridas debe estar entre 480 y 2000'
+                    )
+                
+                # Crear práctica con status DRAFT
                 practice = Practice.objects.create(
                     student=student,
                     company=company,
                     supervisor=supervisor,
-                    titulo=input.titulo,
-                    descripcion=input.descripcion or "",
-                    objetivos=input.objetivos or [],
-                    fecha_inicio=input.fecha_inicio,
-                    fecha_fin=input.fecha_fin,
-                    horas_totales=input.horas_totales or 0,
-                    modalidad=input.modalidad or 'PRESENCIAL',
-                    area_practica=input.area_practica,
-                    status=PracticeStatus.DRAFT.value,
+                    status='DRAFT',
+                    **kwargs
                 )
                 
-                return CreatePractice(
+                # Notificar al coordinador
+                coordinadores = User.objects.filter(role='COORDINADOR', is_active=True)
+                for coord in coordinadores:
+                    create_notification(
+                        user=coord,
+                        tipo='INFO',
+                        titulo='Nueva práctica registrada',
+                        mensaje=f'{student.user.get_full_name()} ha registrado una nueva práctica'
+                    )
+                
+                return CreatePracticeMutation(
                     success=True,
-                    practice=practice,
-                    message="Práctica creada exitosamente"
+                    message='Práctica creada exitosamente',
+                    practice=practice
                 )
-        except (Student.DoesNotExist, Company.DoesNotExist, Supervisor.DoesNotExist):
-            return CreatePractice(success=False, message="Objeto relacionado no encontrado")
+                
         except Exception as e:
-            return CreatePractice(success=False, message=f"Error al crear práctica: {str(e)}")
+            return CreatePracticeMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
 
 
-class UpdatePracticeStatus(graphene.Mutation):
-    """Mutation para actualizar el estado de una práctica."""
+class UpdatePracticeMutation(graphene.Mutation):
+    """Actualizar práctica."""
     
     class Arguments:
         practice_id = graphene.ID(required=True)
-        status = graphene.String(required=True)
-        observations = graphene.String()
+        area = graphene.String()
+        fecha_inicio = graphene.Date()
+        fecha_fin = graphene.Date()
+        horas_requeridas = graphene.Int()
+        descripcion_actividades = graphene.String()
     
     success = graphene.Boolean()
-    practice = graphene.Field(PracticeType)
     message = graphene.String()
+    practice = graphene.Field(PracticeType)
     
     @staticmethod
     @login_required
-    def mutate(root, info, practice_id, status, observations=None):
-        user = info.context.user
+    def mutate(root, info, practice_id, **kwargs):
+        """Actualizar práctica."""
+        current_user = info.context.user
         
         try:
             practice = Practice.objects.get(id=practice_id)
             
-            # Verificar permisos según el estado y rol
-            if status == PracticeStatus.PENDING.value:
-                # Solo el estudiante puede enviar a revisión
-                if user.role != UserRole.PRACTICANTE.value:
-                    return UpdatePracticeStatus(success=False, message="Solo el estudiante puede enviar a revisión")
-                if practice.student.user.id != user.id:
-                    return UpdatePracticeStatus(success=False, message="Solo puedes modificar tu propia práctica")
+            # Validar permisos
+            if not can_update_practice(current_user, practice):
+                return UpdatePracticeMutation(
+                    success=False,
+                    message='No tienes permiso para actualizar esta práctica'
+                )
             
-            elif status in [PracticeStatus.APPROVED.value, PracticeStatus.CANCELLED.value]:
-                # Solo coordinadores pueden aprobar/cancelar
-                if user.role not in ['COORDINADOR', 'ADMINISTRADOR']:
-                    return UpdatePracticeStatus(success=False, message="Sin permisos para aprobar/cancelar prácticas")
+            # No permitir actualización si ya está aprobada o en progreso
+            if practice.status in ['APPROVED', 'IN_PROGRESS', 'COMPLETED']:
+                return UpdatePracticeMutation(
+                    success=False,
+                    message='No se puede actualizar una práctica aprobada o en progreso'
+                )
             
-            elif status == PracticeStatus.IN_PROGRESS.value:
-                # El supervisor puede marcar como en progreso
-                if user.role == UserRole.SUPERVISOR.value:
-                    supervisor = getattr(user, 'supervisor_profile', None)
-                    if not supervisor or practice.supervisor.id != supervisor.id:
-                        return UpdatePracticeStatus(success=False, message="Solo el supervisor asignado puede modificar")
-                elif user.role not in ['COORDINADOR', 'ADMINISTRADOR']:
-                    return UpdatePracticeStatus(success=False, message="Sin permisos")
-            
-            # Actualizar estado
-            practice.status = status
-            if observations:
-                practice.observaciones = observations
+            # Actualizar campos
+            for field, value in kwargs.items():
+                setattr(practice, field, value)
             
             practice.save()
             
-            return UpdatePracticeStatus(
+            return UpdatePracticeMutation(
                 success=True,
-                practice=practice,
-                message=f"Estado actualizado a {status}"
+                message='Práctica actualizada exitosamente',
+                practice=practice
             )
             
         except Practice.DoesNotExist:
-            return UpdatePracticeStatus(success=False, message="Práctica no encontrada")
+            return UpdatePracticeMutation(
+                success=False,
+                message='Práctica no encontrada'
+            )
         except Exception as e:
-            return UpdatePracticeStatus(success=False, message=f"Error al actualizar estado: {str(e)}")
+            return UpdatePracticeMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
 
 
-# ===== MUTATIONS PARA DOCUMENTOS =====
+class SubmitPracticeMutation(graphene.Mutation):
+    """Enviar práctica a revisión (DRAFT → PENDING)."""
+    
+    class Arguments:
+        practice_id = graphene.ID(required=True)
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    practice = graphene.Field(PracticeType)
+    
+    @staticmethod
+    @login_required
+    def mutate(root, info, practice_id):
+        """Enviar práctica."""
+        current_user = info.context.user
+        
+        try:
+            practice = Practice.objects.get(id=practice_id)
+            
+            # Solo el estudiante puede enviar
+            if practice.student.user.id != current_user.id:
+                return SubmitPracticeMutation(
+                    success=False,
+                    message='Solo el estudiante puede enviar la práctica'
+                )
+            
+            # Validar transición
+            if not validate_practice_status_transition(practice.status, 'PENDING'):
+                return SubmitPracticeMutation(
+                    success=False,
+                    message=f'No se puede enviar desde estado {practice.status}'
+                )
+            
+            practice.status = 'PENDING'
+            practice.save()
+            
+            # Notificar coordinadores
+            coordinadores = User.objects.filter(role='COORDINADOR', is_active=True)
+            for coord in coordinadores:
+                create_notification(
+                    user=coord,
+                    tipo='ALERTA',
+                    titulo='Práctica pendiente de aprobación',
+                    mensaje=f'{practice.student.user.get_full_name()} ha enviado una práctica para revisión'
+                )
+            
+            return SubmitPracticeMutation(
+                success=True,
+                message='Práctica enviada a revisión',
+                practice=practice
+            )
+            
+        except Practice.DoesNotExist:
+            return SubmitPracticeMutation(
+                success=False,
+                message='Práctica no encontrada'
+            )
+        except Exception as e:
+            return SubmitPracticeMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
 
 
-# ===== MUTATIONS PARA NOTIFICACIONES =====
-class MarkNotificationAsRead(graphene.Mutation):
-    """Mutation para marcar una notificación como leída."""
+class ApprovePracticeMutation(graphene.Mutation):
+    """Aprobar práctica (PENDING → APPROVED) - Solo Coordinador."""
+    
+    class Arguments:
+        practice_id = graphene.ID(required=True)
+        observaciones = graphene.String()
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    practice = graphene.Field(PracticeType)
+    
+    @staticmethod
+    @login_required
+    @coordinador_required
+    def mutate(root, info, practice_id, observaciones=None):
+        """Aprobar práctica."""
+        try:
+            practice = Practice.objects.get(id=practice_id)
+            
+            # Validar transición
+            if not validate_practice_status_transition(practice.status, 'APPROVED'):
+                return ApprovePracticeMutation(
+                    success=False,
+                    message=f'No se puede aprobar desde estado {practice.status}'
+                )
+            
+            practice.status = 'APPROVED'
+            practice.save()
+            
+            # Notificar estudiante
+            create_notification(
+                user=practice.student.user,
+                tipo='EXITO',
+                titulo='Práctica aprobada',
+                mensaje=f'Tu práctica en {practice.company.razon_social} ha sido aprobada. {observaciones or ""}'
+            )
+            
+            return ApprovePracticeMutation(
+                success=True,
+                message='Práctica aprobada exitosamente',
+                practice=practice
+            )
+            
+        except Practice.DoesNotExist:
+            return ApprovePracticeMutation(
+                success=False,
+                message='Práctica no encontrada'
+            )
+        except Exception as e:
+            return ApprovePracticeMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+class RejectPracticeMutation(graphene.Mutation):
+    """Rechazar práctica (PENDING → DRAFT) - Solo Coordinador."""
+    
+    class Arguments:
+        practice_id = graphene.ID(required=True)
+        observaciones = graphene.String(required=True)
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    practice = graphene.Field(PracticeType)
+    
+    @staticmethod
+    @login_required
+    @coordinador_required
+    def mutate(root, info, practice_id, observaciones):
+        """Rechazar práctica."""
+        try:
+            practice = Practice.objects.get(id=practice_id)
+            
+            # Validar transición
+            if practice.status != 'PENDING':
+                return RejectPracticeMutation(
+                    success=False,
+                    message='Solo se pueden rechazar prácticas pendientes'
+                )
+            
+            practice.status = 'DRAFT'
+            practice.save()
+            
+            # Notificar estudiante
+            create_notification(
+                user=practice.student.user,
+                tipo='ALERTA',
+                titulo='Práctica rechazada',
+                mensaje=f'Tu práctica necesita correcciones: {observaciones}'
+            )
+            
+            return RejectPracticeMutation(
+                success=True,
+                message='Práctica rechazada, devuelta a borrador',
+                practice=practice
+            )
+            
+        except Practice.DoesNotExist:
+            return RejectPracticeMutation(
+                success=False,
+                message='Práctica no encontrada'
+            )
+        except Exception as e:
+            return RejectPracticeMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+class StartPracticeMutation(graphene.Mutation):
+    """Iniciar práctica (APPROVED → IN_PROGRESS)."""
+    
+    class Arguments:
+        practice_id = graphene.ID(required=True)
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    practice = graphene.Field(PracticeType)
+    
+    @staticmethod
+    @login_required
+    def mutate(root, info, practice_id):
+        """Iniciar práctica."""
+        current_user = info.context.user
+        
+        try:
+            practice = Practice.objects.get(id=practice_id)
+            
+            # Solo coordinador o el estudiante pueden iniciar
+            if current_user.role != 'COORDINADOR' and practice.student.user.id != current_user.id:
+                return StartPracticeMutation(
+                    success=False,
+                    message='No tienes permiso para iniciar esta práctica'
+                )
+            
+            # Validar transición
+            if not validate_practice_status_transition(practice.status, 'IN_PROGRESS'):
+                return StartPracticeMutation(
+                    success=False,
+                    message=f'No se puede iniciar desde estado {practice.status}'
+                )
+            
+            practice.status = 'IN_PROGRESS'
+            practice.save()
+            
+            # Notificar estudiante y supervisor
+            create_notification(
+                user=practice.student.user,
+                tipo='INFO',
+                titulo='Práctica iniciada',
+                mensaje=f'Tu práctica en {practice.company.razon_social} ha iniciado'
+            )
+            
+            create_notification(
+                user=practice.supervisor.user,
+                tipo='INFO',
+                titulo='Práctica iniciada',
+                mensaje=f'La práctica de {practice.student.user.get_full_name()} ha iniciado'
+            )
+            
+            return StartPracticeMutation(
+                success=True,
+                message='Práctica iniciada exitosamente',
+                practice=practice
+            )
+            
+        except Practice.DoesNotExist:
+            return StartPracticeMutation(
+                success=False,
+                message='Práctica no encontrada'
+            )
+        except Exception as e:
+            return StartPracticeMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+class CompletePracticeMutation(graphene.Mutation):
+    """Completar práctica (IN_PROGRESS → COMPLETED)."""
+    
+    class Arguments:
+        practice_id = graphene.ID(required=True)
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    practice = graphene.Field(PracticeType)
+    
+    @staticmethod
+    @login_required
+    @coordinador_required
+    def mutate(root, info, practice_id):
+        """Completar práctica."""
+        try:
+            practice = Practice.objects.get(id=practice_id)
+            
+            # Validar transición
+            if not validate_practice_status_transition(practice.status, 'COMPLETED'):
+                return CompletePracticeMutation(
+                    success=False,
+                    message=f'No se puede completar desde estado {practice.status}'
+                )
+            
+            practice.status = 'COMPLETED'
+            practice.save()
+            
+            # Notificar estudiante
+            create_notification(
+                user=practice.student.user,
+                tipo='EXITO',
+                titulo='Práctica completada',
+                mensaje=f'¡Felicitaciones! Has completado tu práctica en {practice.company.razon_social}'
+            )
+            
+            return CompletePracticeMutation(
+                success=True,
+                message='Práctica completada exitosamente',
+                practice=practice
+            )
+            
+        except Practice.DoesNotExist:
+            return CompletePracticeMutation(
+                success=False,
+                message='Práctica no encontrada'
+            )
+        except Exception as e:
+            return CompletePracticeMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+class DeletePracticeMutation(graphene.Mutation):
+    """Eliminar práctica (solo Admin o si está en DRAFT)."""
+    
+    class Arguments:
+        practice_id = graphene.ID(required=True)
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    
+    @staticmethod
+    @login_required
+    def mutate(root, info, practice_id):
+        """Eliminar práctica."""
+        current_user = info.context.user
+        
+        try:
+            practice = Practice.objects.get(id=practice_id)
+            
+            # Solo Admin o el estudiante (si está en DRAFT) pueden eliminar
+            if current_user.role != 'ADMINISTRADOR':
+                if practice.student.user.id != current_user.id:
+                    return DeletePracticeMutation(
+                        success=False,
+                        message='No tienes permiso para eliminar esta práctica'
+                    )
+                if practice.status != 'DRAFT':
+                    return DeletePracticeMutation(
+                        success=False,
+                        message='Solo se pueden eliminar prácticas en borrador'
+                    )
+            
+            practice.delete()
+            
+            return DeletePracticeMutation(
+                success=True,
+                message='Práctica eliminada exitosamente'
+            )
+            
+        except Practice.DoesNotExist:
+            return DeletePracticeMutation(
+                success=False,
+                message='Práctica no encontrada'
+            )
+        except Exception as e:
+            return DeletePracticeMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+# ============================================================================
+# DOCUMENT MUTATIONS
+# ============================================================================
+
+class CreateDocumentMutation(graphene.Mutation):
+    """Crear/subir nuevo documento."""
+    
+    class Arguments:
+        practice_id = graphene.ID(required=True)
+        tipo_documento = graphene.String(required=True)
+        nombre = graphene.String(required=True)
+        archivo_url = graphene.String(required=True)
+        observaciones = graphene.String()
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    document = graphene.Field(DocumentType)
+    
+    @staticmethod
+    @login_required
+    def mutate(root, info, practice_id, **kwargs):
+        """Crear documento."""
+        current_user = info.context.user
+        
+        try:
+            # Validar práctica
+            try:
+                practice = Practice.objects.get(id=practice_id)
+                
+                # Solo el estudiante puede subir documentos
+                if practice.student.user.id != current_user.id:
+                    return CreateDocumentMutation(
+                        success=False,
+                        message='Solo el estudiante puede subir documentos'
+                    )
+            except Practice.DoesNotExist:
+                return CreateDocumentMutation(
+                    success=False,
+                    message='Práctica no encontrada'
+                )
+            
+            # Validar tipo documento
+            valid_tipos = [
+                'PLAN_TRABAJO',
+                'INFORME_MENSUAL',
+                'INFORME_FINAL',
+                'CERTIFICADO',
+                'CONSTANCIA',
+                'EVALUACION',
+                'OTRO'
+            ]
+            if kwargs['tipo_documento'] not in valid_tipos:
+                return CreateDocumentMutation(
+                    success=False,
+                    message=f'Tipo inválido. Opciones: {", ".join(valid_tipos)}'
+                )
+            
+            # Crear documento con status PENDING
+            document = Document.objects.create(
+                practice=practice,
+                status='PENDING',
+                **kwargs
+            )
+            
+            # Notificar coordinador
+            coordinadores = User.objects.filter(role='COORDINADOR', is_active=True)
+            for coord in coordinadores:
+                create_notification(
+                    user=coord,
+                    tipo='INFO',
+                    titulo='Nuevo documento subido',
+                    mensaje=f'{practice.student.user.get_full_name()} ha subido un documento de tipo {document.tipo_documento}'
+                )
+            
+            return CreateDocumentMutation(
+                success=True,
+                message='Documento subido exitosamente',
+                document=document
+            )
+            
+        except Exception as e:
+            return CreateDocumentMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+class ApproveDocumentMutation(graphene.Mutation):
+    """Aprobar documento - Solo Coordinador."""
+    
+    class Arguments:
+        document_id = graphene.ID(required=True)
+        observaciones = graphene.String()
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    document = graphene.Field(DocumentType)
+    
+    @staticmethod
+    @login_required
+    @coordinador_required
+    def mutate(root, info, document_id, observaciones=None):
+        """Aprobar documento."""
+        try:
+            document = Document.objects.get(id=document_id)
+            
+            document.status = 'APPROVED'
+            document.save()
+            
+            # Notificar estudiante
+            create_notification(
+                user=document.practice.student.user,
+                tipo='EXITO',
+                titulo='Documento aprobado',
+                mensaje=f'Tu documento {document.nombre} ha sido aprobado. {observaciones or ""}'
+            )
+            
+            return ApproveDocumentMutation(
+                success=True,
+                message='Documento aprobado exitosamente',
+                document=document
+            )
+            
+        except Document.DoesNotExist:
+            return ApproveDocumentMutation(
+                success=False,
+                message='Documento no encontrado'
+            )
+        except Exception as e:
+            return ApproveDocumentMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+class RejectDocumentMutation(graphene.Mutation):
+    """Rechazar documento - Solo Coordinador."""
+    
+    class Arguments:
+        document_id = graphene.ID(required=True)
+        observaciones = graphene.String(required=True)
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    document = graphene.Field(DocumentType)
+    
+    @staticmethod
+    @login_required
+    @coordinador_required
+    def mutate(root, info, document_id, observaciones):
+        """Rechazar documento."""
+        try:
+            document = Document.objects.get(id=document_id)
+            
+            document.status = 'REJECTED'
+            document.save()
+            
+            # Notificar estudiante
+            create_notification(
+                user=document.practice.student.user,
+                tipo='ALERTA',
+                titulo='Documento rechazado',
+                mensaje=f'Tu documento {document.nombre} necesita correcciones: {observaciones}'
+            )
+            
+            return RejectDocumentMutation(
+                success=True,
+                message='Documento rechazado',
+                document=document
+            )
+            
+        except Document.DoesNotExist:
+            return RejectDocumentMutation(
+                success=False,
+                message='Documento no encontrado'
+            )
+        except Exception as e:
+            return RejectDocumentMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+class DeleteDocumentMutation(graphene.Mutation):
+    """Eliminar documento."""
+    
+    class Arguments:
+        document_id = graphene.ID(required=True)
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    
+    @staticmethod
+    @login_required
+    def mutate(root, info, document_id):
+        """Eliminar documento."""
+        current_user = info.context.user
+        
+        try:
+            document = Document.objects.get(id=document_id)
+            
+            # Solo el estudiante (si está PENDING) o Admin pueden eliminar
+            if current_user.role != 'ADMINISTRADOR':
+                if document.practice.student.user.id != current_user.id:
+                    return DeleteDocumentMutation(
+                        success=False,
+                        message='No tienes permiso para eliminar este documento'
+                    )
+                if document.status != 'PENDING':
+                    return DeleteDocumentMutation(
+                        success=False,
+                        message='Solo se pueden eliminar documentos pendientes'
+                    )
+            
+            document.delete()
+            
+            return DeleteDocumentMutation(
+                success=True,
+                message='Documento eliminado exitosamente'
+            )
+            
+        except Document.DoesNotExist:
+            return DeleteDocumentMutation(
+                success=False,
+                message='Documento no encontrado'
+            )
+        except Exception as e:
+            return DeleteDocumentMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+# ============================================================================
+# NOTIFICATION MUTATIONS
+# ============================================================================
+
+class MarkNotificationAsReadMutation(graphene.Mutation):
+    """Marcar notificación como leída."""
     
     class Arguments:
         notification_id = graphene.ID(required=True)
     
     success = graphene.Boolean()
+    message = graphene.String()
     notification = graphene.Field(NotificationType)
+    
+    @staticmethod
+    @login_required
+    def mutate(root, info, notification_id):
+        """Marcar notificación como leída."""
+        current_user = info.context.user
+        
+        try:
+            notification = Notification.objects.get(
+                id=notification_id,
+                user=current_user
+            )
+            
+            notification.leido = True
+            notification.save()
+            
+            return MarkNotificationAsReadMutation(
+                success=True,
+                message='Notificación marcada como leída',
+                notification=notification
+            )
+            
+        except Notification.DoesNotExist:
+            return MarkNotificationAsReadMutation(
+                success=False,
+                message='Notificación no encontrada'
+            )
+        except Exception as e:
+            return MarkNotificationAsReadMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+
+
+class MarkAllNotificationsReadMutation(graphene.Mutation):
+    """Marcar todas las notificaciones como leídas."""
+    
+    success = graphene.Boolean()
+    message = graphene.String()
+    count = graphene.Int()
+    
+    @staticmethod
+    @login_required
+    def mutate(root, info):
+        """Marcar todas como leídas."""
+        current_user = info.context.user
+        
+        try:
+            count = Notification.objects.filter(
+                user=current_user,
+                leido=False
+            ).update(leido=True)
+            
+            return MarkAllNotificationsReadMutation(
+                success=True,
+                message=f'{count} notificaciones marcadas como leídas',
+                count=count
+            )
+            
+        except Exception as e:
+            return MarkAllNotificationsReadMutation(
+                success=False,
+                message=f'Error: {str(e)}',
+                count=0
+            )
+
+
+class DeleteNotificationMutation(graphene.Mutation):
+    """Eliminar notificación."""
+    
+    class Arguments:
+        notification_id = graphene.ID(required=True)
+    
+    success = graphene.Boolean()
     message = graphene.String()
     
     @staticmethod
     @login_required
     def mutate(root, info, notification_id):
-        user = info.context.user
+        """Eliminar notificación."""
+        current_user = info.context.user
         
         try:
-            notification = Notification.objects.get(id=notification_id, user=user)
-            notification.leida = True
-            notification.fecha_lectura = timezone.now()
-            notification.save()
+            notification = Notification.objects.get(
+                id=notification_id,
+                user=current_user
+            )
             
-            return MarkNotificationAsRead(
+            notification.delete()
+            
+            return DeleteNotificationMutation(
                 success=True,
-                notification=notification,
-                message="Notificación marcada como leída"
+                message='Notificación eliminada exitosamente'
             )
             
         except Notification.DoesNotExist:
-            return MarkNotificationAsRead(success=False, message="Notificación no encontrada")
+            return DeleteNotificationMutation(
+                success=False,
+                message='Notificación no encontrada'
+            )
         except Exception as e:
-            return MarkNotificationAsRead(success=False, message=f"Error: {str(e)}")
+            return DeleteNotificationMutation(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
 
 
-# ===== MUTACIONES DE AVATARES =====
-class SelectMyAvatar(graphene.Mutation):
-    """Selecciona un avatar por ID para el usuario autenticado."""
+class CreateNotificationMutation(graphene.Mutation):
+    """Crear notificación manual (solo Admin/Coordinador)."""
     
     class Arguments:
-        avatar_id = graphene.ID(required=True)
+        user_ids = graphene.List(graphene.ID, required=True)
+        tipo = graphene.String(required=True)
+        titulo = graphene.String(required=True)
+        mensaje = graphene.String(required=True)
     
     success = graphene.Boolean()
-    user = graphene.Field(UserType)
     message = graphene.String()
+    count = graphene.Int()
     
     @staticmethod
     @login_required
-    def mutate(root, info, avatar_id):
-        user = info.context.user
-        
+    @staff_required
+    def mutate(root, info, user_ids, tipo, titulo, mensaje):
+        """Crear notificaciones."""
         try:
-            # Obtener el avatar por ID
-            avatar = Avatar.objects.get(id=avatar_id, is_active=True)
-            
-            # Verificar que el avatar corresponde al rol del usuario
-            if avatar.role != user.role:
-                return SelectMyAvatar(
-                    success=False, 
-                    message=f"Este avatar no está disponible para tu rol ({user.role})"
+            # Validar tipo
+            valid_tipos = ['INFO', 'ALERTA', 'EXITO', 'ERROR']
+            if tipo not in valid_tipos:
+                return CreateNotificationMutation(
+                    success=False,
+                    message=f'Tipo inválido. Opciones: {", ".join(valid_tipos)}',
+                    count=0
                 )
             
-            # Asignar el avatar al usuario
-            user.avatar = avatar
-            user.save()
+            # Crear notificaciones
+            count = 0
+            for user_id in user_ids:
+                try:
+                    user = User.objects.get(id=user_id)
+                    create_notification(
+                        user=user,
+                        tipo=tipo,
+                        titulo=titulo,
+                        mensaje=mensaje
+                    )
+                    count += 1
+                except User.DoesNotExist:
+                    continue
             
-            return SelectMyAvatar(
+            return CreateNotificationMutation(
                 success=True,
-                user=user,
-                message="Avatar seleccionado correctamente"
-            )
-            
-        except Avatar.DoesNotExist:
-            return SelectMyAvatar(success=False, message="Avatar no encontrado")
-        except Exception as e:
-            return SelectMyAvatar(success=False, message=f"Error: {str(e)}")
-
-
-class RemoveMyAvatar(graphene.Mutation):
-    """Elimina la relación de avatar del usuario autenticado."""
-    
-    success = graphene.Boolean()
-    user = graphene.Field(UserType)
-    message = graphene.String()
-    
-    @staticmethod
-    @login_required
-    def mutate(root, info):
-        user = info.context.user
-        
-        try:
-            # Eliminar la relación con el avatar
-            user.avatar = None
-            user.save()
-            
-            return RemoveMyAvatar(
-                success=True,
-                user=user,
-                message="Avatar eliminado correctamente"
+                message=f'{count} notificaciones creadas exitosamente',
+                count=count
             )
             
         except Exception as e:
-            return RemoveMyAvatar(success=False, message=f"Error: {str(e)}")
-
-
-# ===== MUTACIONES DE GESTIÓN DE AVATARES (ADMIN) =====
-class CreateAvatar(graphene.Mutation):
-    """Crea un nuevo avatar (solo ADMIN)."""
-    
-    class Arguments:
-        url = graphene.String(required=True)
-        role = graphene.String(required=True)
-        is_active = graphene.Boolean()
-    
-    success = graphene.Boolean()
-    message = graphene.String()
-    avatar = graphene.Field('src.adapters.primary.graphql_api.types.AvatarType')
-    
-    @staticmethod
-    @login_required
-    def mutate(root, info, url, role, is_active=True):
-        user = info.context.user
-        
-        # Solo ADMINISTRADOR puede crear avatares
-        if user.role != 'ADMINISTRADOR':
-            return CreateAvatar(
-                success=False, 
-                message="Solo los administradores pueden crear avatares"
+            return CreateNotificationMutation(
+                success=False,
+                message=f'Error: {str(e)}',
+                count=0
             )
-        
-        try:
-            # Validar rol
-            valid_roles = ['PRACTICANTE', 'SUPERVISOR', 'COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']
-            if role not in valid_roles:
-                return CreateAvatar(
-                    success=False, 
-                    message=f"Rol inválido. Debe ser uno de: {', '.join(valid_roles)}"
-                )
-            
-            # Crear avatar
-            avatar = Avatar.objects.create(
-                url=url,
-                role=role,
-                is_active=is_active
-            )
-            
-            return CreateAvatar(
-                success=True,
-                message="Avatar creado correctamente",
-                avatar=avatar
-            )
-            
-        except Exception as e:
-            return CreateAvatar(success=False, message=f"Error: {str(e)}")
 
 
-class UpdateAvatar(graphene.Mutation):
-    """Actualiza un avatar existente (solo ADMIN)."""
-    
-    class Arguments:
-        id = graphene.ID(required=True)
-        url = graphene.String()
-        is_active = graphene.Boolean()
-    
-    success = graphene.Boolean()
-    message = graphene.String()
-    avatar = graphene.Field('src.adapters.primary.graphql_api.types.AvatarType')
-    
-    @staticmethod
-    @login_required
-    def mutate(root, info, id, url=None, is_active=None):
-        user = info.context.user
-        
-        # Solo ADMINISTRADOR puede actualizar avatares
-        if user.role != 'ADMINISTRADOR':
-            return UpdateAvatar(
-                success=False, 
-                message="Solo los administradores pueden actualizar avatares"
-            )
-        
-        try:
-            avatar = Avatar.objects.get(id=id)
-            
-            # Actualizar campos si se proporcionan
-            updated = False
-            if url is not None:
-                avatar.url = url
-                updated = True
-            if is_active is not None:
-                avatar.is_active = is_active
-                updated = True
-            
-            if updated:
-                avatar.save()
-                return UpdateAvatar(
-                    success=True,
-                    message="Avatar actualizado correctamente",
-                    avatar=avatar
-                )
-            else:
-                return UpdateAvatar(
-                    success=True,
-                    message="Sin cambios",
-                    avatar=avatar
-                )
-            
-        except Avatar.DoesNotExist:
-            return UpdateAvatar(success=False, message="Avatar no encontrado")
-        except Exception as e:
-            return UpdateAvatar(success=False, message=f"Error: {str(e)}")
+# ============================================================================
+# SCHEMA FINAL - REGISTRO DE TODAS LAS MUTATIONS
+# ============================================================================
 
-
-class DeleteAvatar(graphene.Mutation):
-    """Elimina un avatar (solo ADMIN)."""
-    
-    class Arguments:
-        id = graphene.ID(required=True)
-    
-    success = graphene.Boolean()
-    message = graphene.String()
-    
-    @staticmethod
-    @login_required
-    def mutate(root, info, id):
-        user = info.context.user
-        
-        # Solo ADMINISTRADOR puede eliminar avatares
-        if user.role != 'ADMINISTRADOR':
-            return DeleteAvatar(
-                success=False, 
-                message="Solo los administradores pueden eliminar avatares"
-            )
-        
-        try:
-            avatar = Avatar.objects.get(id=id)
-            
-            # Verificar si hay usuarios usando este avatar
-            users_count = User.objects.filter(avatar=avatar).count()
-            if users_count > 0:
-                return DeleteAvatar(
-                    success=False, 
-                    message=f"No se puede eliminar. {users_count} usuario(s) están usando este avatar"
-                )
-            
-            avatar.delete()
-            
-            return DeleteAvatar(
-                success=True,
-                message="Avatar eliminado correctamente"
-            )
-            
-        except Avatar.DoesNotExist:
-            return DeleteAvatar(success=False, message="Avatar no encontrado")
-        except Exception as e:
-            return DeleteAvatar(success=False, message=f"Error: {str(e)}")
-
-
-# ===== MUTACIONES DE GESTIÓN DE PERMISOS DE ROLES (ADMIN) =====
-class AddPermissionToRole(graphene.Mutation):
-    """Agrega un permiso a un rol (solo ADMIN)."""
-    
-    class Arguments:
-        role_code = graphene.String(required=True)
-        permission_id = graphene.ID(required=True)
-    
-    success = graphene.Boolean()
-    message = graphene.String()
-    role = graphene.Field('src.adapters.primary.graphql_api.types.RoleType')
-    
-    @staticmethod
-    @login_required
-    def mutate(root, info, role_code, permission_id):
-        user = info.context.user
-        
-        # Solo ADMINISTRADOR puede gestionar permisos de roles
-        if user.role != 'ADMINISTRADOR':
-            return AddPermissionToRole(
-                success=False, 
-                message="Solo los administradores pueden gestionar permisos de roles"
-            )
-        
-        try:
-            # Validar que el rol existe y no es PRACTICANTE
-            if role_code == 'PRACTICANTE':
-                return AddPermissionToRole(
-                    success=False, 
-                    message="No se pueden modificar los permisos del rol PRACTICANTE"
-                )
-            
-            role = Role.objects.get(code=role_code)
-            permission = Permission.objects.get(id=permission_id)
-            
-            # Verificar si ya tiene el permiso
-            if role.permissions.filter(id=permission_id).exists():
-                return AddPermissionToRole(
-                    success=False, 
-                    message=f"El rol {role_code} ya tiene el permiso {permission.code}"
-                )
-            
-            # Agregar permiso al rol
-            role.permissions.add(permission)
-            
-            return AddPermissionToRole(
-                success=True,
-                message=f"Permiso {permission.code} agregado al rol {role_code}",
-                role=role
-            )
-            
-        except Role.DoesNotExist:
-            return AddPermissionToRole(success=False, message=f"Rol {role_code} no encontrado")
-        except Permission.DoesNotExist:
-            return AddPermissionToRole(success=False, message="Permiso no encontrado")
-        except Exception as e:
-            return AddPermissionToRole(success=False, message=f"Error: {str(e)}")
-
-
-class RemovePermissionFromRole(graphene.Mutation):
-    """Elimina un permiso de un rol (solo ADMIN)."""
-    
-    class Arguments:
-        role_code = graphene.String(required=True)
-        permission_id = graphene.ID(required=True)
-    
-    success = graphene.Boolean()
-    message = graphene.String()
-    role = graphene.Field('src.adapters.primary.graphql_api.types.RoleType')
-    
-    @staticmethod
-    @login_required
-    def mutate(root, info, role_code, permission_id):
-        user = info.context.user
-        
-        # Solo ADMINISTRADOR puede gestionar permisos de roles
-        if user.role != 'ADMINISTRADOR':
-            return RemovePermissionFromRole(
-                success=False, 
-                message="Solo los administradores pueden gestionar permisos de roles"
-            )
-        
-        try:
-            # Validar que el rol existe y no es PRACTICANTE
-            if role_code == 'PRACTICANTE':
-                return RemovePermissionFromRole(
-                    success=False, 
-                    message="No se pueden modificar los permisos del rol PRACTICANTE"
-                )
-            
-            role = Role.objects.get(code=role_code)
-            permission = Permission.objects.get(id=permission_id)
-            
-            # Verificar si tiene el permiso
-            if not role.permissions.filter(id=permission_id).exists():
-                return RemovePermissionFromRole(
-                    success=False, 
-                    message=f"El rol {role_code} no tiene el permiso {permission.code}"
-                )
-            
-            # Eliminar permiso del rol
-            role.permissions.remove(permission)
-            
-            return RemovePermissionFromRole(
-                success=True,
-                message=f"Permiso {permission.code} eliminado del rol {role_code}",
-                role=role
-            )
-            
-        except Role.DoesNotExist:
-            return RemovePermissionFromRole(success=False, message=f"Rol {role_code} no encontrado")
-        except Permission.DoesNotExist:
-            return RemovePermissionFromRole(success=False, message="Permiso no encontrado")
-        except Exception as e:
-            return RemovePermissionFromRole(success=False, message=f"Error: {str(e)}")
-
-
-# ===== MUTATION PRINCIPAL =====
 class Mutation(graphene.ObjectType):
-    """Mutaciones disponibles en el sistema."""
+    """Registro de todas las mutations del sistema."""
     
-    # Autenticación JWT PURO (PRINCIPAL)
-    # Estas se importarán dinámicamente del archivo jwt_mutations.py
+    # User mutations
+    create_user = CreateUserMutation.Field()
+    update_user = UpdateUserMutation.Field()
+    delete_user = DeleteUserMutation.Field()
+    change_password = ChangePasswordMutation.Field()
     
-    # Autenticación JWT (HABILITADA - Sistema JWT PURO)
-    # token_auth = TokenAuth.Field()
-    # verify_token = graphql_jwt.Verify.Field()
-    # refresh_token = graphql_jwt.Refresh.Field()
-    # stable_refresh = StableRefresh.Field()
+    # Student mutations
+    create_student = CreateStudentMutation.Field()
+    update_student = UpdateStudentMutation.Field()
+    delete_student = DeleteStudentMutation.Field()
     
-    # Recuperación de contraseña (mantener)
-    forgot_password = ForgotPassword.Field()
-    reset_password_with_code = ResetPasswordWithCode.Field()
-    change_password = ChangePassword.Field()
-    logout = Logout.Field()
-    create_user = CreateUser.Field()
-    update_user = UpdateUser.Field()
-    delete_user = DeleteUser.Field()
-    update_my_profile = UpdateMyProfile.Field()
+    # Company mutations
+    create_company = CreateCompanyMutation.Field()
+    update_company = UpdateCompanyMutation.Field()
+    validate_company = ValidateCompanyMutation.Field()
+    delete_company = DeleteCompanyMutation.Field()
     
-    # Estudiantes
-    create_student = CreateStudent.Field()
+    # Supervisor mutations
+    create_supervisor = CreateSupervisorMutation.Field()
+    update_supervisor = UpdateSupervisorMutation.Field()
+    delete_supervisor = DeleteSupervisorMutation.Field()
     
-    # Empresas
-    create_company = CreateCompany.Field()
-    validate_company = ValidateCompany.Field()
+    # Practice mutations
+    create_practice = CreatePracticeMutation.Field()
+    update_practice = UpdatePracticeMutation.Field()
+    submit_practice = SubmitPracticeMutation.Field()
+    approve_practice = ApprovePracticeMutation.Field()
+    reject_practice = RejectPracticeMutation.Field()
+    start_practice = StartPracticeMutation.Field()
+    complete_practice = CompletePracticeMutation.Field()
+    delete_practice = DeletePracticeMutation.Field()
     
-    # Prácticas
-    create_practice = CreatePractice.Field()
-    update_practice_status = UpdatePracticeStatus.Field()
+    # Document mutations
+    create_document = CreateDocumentMutation.Field()
+    approve_document = ApproveDocumentMutation.Field()
+    reject_document = RejectDocumentMutation.Field()
+    delete_document = DeleteDocumentMutation.Field()
     
-    # Sesiones Opacas (nuevo sistema)
-    opaque_login = None  # Se importará dinámicamente
-    opaque_logout = None  # Se importará dinámicamente
-    extend_opaque_session = None  # Se importará dinámicamente
-    
-    # Notificaciones
-    mark_notification_as_read = MarkNotificationAsRead.Field()
-    
-    # Avatares
-    select_my_avatar = SelectMyAvatar.Field()
-    remove_my_avatar = RemoveMyAvatar.Field()
-    
-    # Gestión de Avatares (ADMIN)
-    create_avatar = CreateAvatar.Field()
-    update_avatar = UpdateAvatar.Field()
-    delete_avatar = DeleteAvatar.Field()
-    
-    # Gestión de Permisos de Roles (ADMIN)
-    add_permission_to_role = AddPermissionToRole.Field()
-    remove_permission_from_role = RemovePermissionFromRole.Field()
-    
-    # Gestión de Permisos de Usuario (ADMIN)
-    grant_user_permission = GrantUserPermission.Field()
-    revoke_user_permission = RevokeUserPermission.Field()
+    # Notification mutations
+    mark_notification_read = MarkNotificationAsReadMutation.Field()
+    mark_all_notifications_read = MarkAllNotificationsReadMutation.Field()
+    delete_notification = DeleteNotificationMutation.Field()
+    create_notification = CreateNotificationMutation.Field()
+

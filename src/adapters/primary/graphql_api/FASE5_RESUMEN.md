@@ -3,7 +3,7 @@
 ## ✅ Resumen de Implementación
 
 ### 📦 Archivo Principal
-**`queries_complete.py`** (~1,600 líneas)
+**`queries.py`** (~1,600 líneas)
 
 ### 🎯 Queries Implementadas: 50+
 
