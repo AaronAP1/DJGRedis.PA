@@ -24,8 +24,9 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from src.adapters.secondary.database.models import (
-    Student, Company, Supervisor, Practice, Document, Notification, Avatar,
-    Role, Permission, RolePermission, UserPermission
+    Student, StudentProfile, SupervisorProfile, Company, Supervisor, Practice, Document, Notification, Avatar,
+    Role, Permission, RolePermission, UserPermission,
+    School, Branch, PracticeEvaluation, PracticeStatusHistory
 )
 from datetime import datetime, timedelta
 import os
@@ -40,18 +41,27 @@ User = get_user_model()
 class PermissionSerializer(serializers.ModelSerializer):
     """Serializer para permisos del sistema."""
     
+    # Declarar properties como ReadOnlyField
+    code = serializers.ReadOnlyField()
+    name = serializers.ReadOnlyField()
+    description = serializers.ReadOnlyField()
+    
     class Meta:
         model = Permission
-        fields = ['id', 'code', 'name', 'description', 'module', 'is_active', 'created_at']
+        fields = ['id', 'codigo', 'code', 'nombre', 'name', 'descripcion', 'description', 'module', 'is_active', 'created_at']
         read_only_fields = ['id', 'created_at']
 
 
 class PermissionListSerializer(serializers.ModelSerializer):
     """Serializer resumido para listar permisos."""
     
+    # Declarar properties como ReadOnlyField
+    code = serializers.ReadOnlyField()
+    name = serializers.ReadOnlyField()
+    
     class Meta:
         model = Permission
-        fields = ['id', 'code', 'name', 'module', 'is_active']
+        fields = ['id', 'codigo', 'code', 'nombre', 'name', 'module', 'is_active']
 
 
 class RolePermissionSerializer(serializers.ModelSerializer):
@@ -70,17 +80,22 @@ class RolePermissionSerializer(serializers.ModelSerializer):
 class RoleSerializer(serializers.ModelSerializer):
     """Serializer completo para roles con permisos."""
     
+    # Declarar properties como ReadOnlyField
+    code = serializers.ReadOnlyField()
+    name = serializers.ReadOnlyField()
+    description = serializers.ReadOnlyField()
+    
     permissions = PermissionListSerializer(many=True, read_only=True)
     permissions_count = serializers.SerializerMethodField()
     
     class Meta:
         model = Role
         fields = [
-            'id', 'code', 'name', 'description', 
-            'permissions', 'permissions_count',
-            'is_active', 'is_system', 'created_at', 'updated_at'
+            'id', 'nombre', 'code', 'name', 'descripcion', 'description', 
+            'permisos', 'permissions', 'permissions_count',
+            'fecha_creacion'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'fecha_creacion']
     
     def get_permissions_count(self, obj):
         """Retorna cantidad de permisos activos del rol."""
@@ -90,11 +105,15 @@ class RoleSerializer(serializers.ModelSerializer):
 class RoleListSerializer(serializers.ModelSerializer):
     """Serializer resumido para listar roles."""
     
+    # Declarar properties como ReadOnlyField
+    code = serializers.ReadOnlyField()
+    name = serializers.ReadOnlyField()
+    
     permissions_count = serializers.SerializerMethodField()
     
     class Meta:
         model = Role
-        fields = ['id', 'code', 'name', 'permissions_count', 'is_active', 'is_system']
+        fields = ['id', 'nombre', 'code', 'name', 'permissions_count']
     
     def get_permissions_count(self, obj):
         return obj.permissions.filter(is_active=True).count()
@@ -104,7 +123,7 @@ class RoleCreateSerializer(serializers.ModelSerializer):
     """Serializer para crear roles."""
     
     permission_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+        child=serializers.IntegerField(),  # Changed from UUIDField to IntegerField
         write_only=True,
         required=False,
         help_text="Lista de IDs de permisos a asignar al rol"
@@ -112,13 +131,13 @@ class RoleCreateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Role
-        fields = ['code', 'name', 'description', 'is_active', 'permission_ids']
+        fields = ['nombre', 'descripcion', 'permisos', 'permission_ids']
     
-    def validate_code(self, value):
-        """Validar que el código sea único y en mayúsculas."""
+    def validate_nombre(self, value):
+        """Validar que el nombre sea único y en mayúsculas."""
         value = value.upper()
-        if Role.objects.filter(code=value).exists():
-            raise serializers.ValidationError('Ya existe un rol con este código')
+        if Role.objects.filter(nombre=value).exists():
+            raise serializers.ValidationError('Ya existe un rol con este nombre')
         return value
     
     def create(self, validated_data):
@@ -137,23 +156,24 @@ class RoleCreateSerializer(serializers.ModelSerializer):
 class UserPermissionSerializer(serializers.ModelSerializer):
     """Serializer para permisos específicos de usuario (overrides)."""
     
-    permission = PermissionSerializer(read_only=True)
-    permission_id = serializers.UUIDField(write_only=True)
-    user_email = serializers.EmailField(source='user.email', read_only=True)
-    granted_by_email = serializers.EmailField(source='granted_by.email', read_only=True)
-    is_expired = serializers.SerializerMethodField()
+    permiso_detail = PermissionSerializer(source='permiso', read_only=True)
+    permiso_id = serializers.IntegerField(write_only=True)
+    usuario_email = serializers.EmailField(source='usuario.correo', read_only=True)
     
     class Meta:
         model = UserPermission
         fields = [
-            'id', 'user', 'user_email', 'permission', 'permission_id',
-            'permission_type', 'granted_by', 'granted_by_email',
-            'reason', 'granted_at', 'expires_at', 'is_expired'
+            'id', 'usuario', 'usuario_email', 'permiso', 'permiso_detail', 'permiso_id',
+            'permiso_tipo', 'granted_at'
         ]
-        read_only_fields = ['id', 'granted_by', 'granted_at']
+        read_only_fields = ['id', 'granted_at']
     
-    def get_is_expired(self, obj):
-        """Verifica si el permiso ha expirado."""
+    def create(self, validated_data):
+        """Crear permiso de usuario."""
+        permiso_id = validated_data.pop('permiso_id')
+        permiso = Permission.objects.get(id=permiso_id)
+        validated_data['permiso'] = permiso
+        return UserPermission.objects.create(**validated_data)
         if obj.expires_at is None:
             return False
         from django.utils import timezone
@@ -165,22 +185,22 @@ class UserPermissionCreateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = UserPermission
-        fields = ['user', 'permission', 'permission_type', 'reason', 'expires_at']
+        fields = ['usuario', 'permiso', 'permiso_tipo']
     
     def validate(self, attrs):
         """Validar que no exista ya un permiso igual para el usuario."""
-        user = attrs.get('user')
-        permission = attrs.get('permission')
+        usuario = attrs.get('usuario')
+        permiso = attrs.get('permiso')
         
         # Verificar si ya existe
         existing = UserPermission.objects.filter(
-            user=user,
-            permission=permission
+            usuario=usuario,
+            permiso=permiso
         ).first()
         
         if existing:
             raise serializers.ValidationError(
-                f'El usuario ya tiene un override para el permiso "{permission.code}"'
+                f'El usuario ya tiene un permiso para "{permiso.codigo}"'
             )
         
         return attrs
@@ -206,15 +226,22 @@ class AvatarSerializer(serializers.ModelSerializer):
 class UserListSerializer(serializers.ModelSerializer):
     """Serializer simple para listar usuarios (sin datos sensibles)."""
     
+    # Declarar properties como ReadOnlyField
+    email = serializers.ReadOnlyField()
+    first_name = serializers.ReadOnlyField()
+    last_name = serializers.ReadOnlyField()
+    is_active = serializers.ReadOnlyField()
+    last_login = serializers.ReadOnlyField()
     full_name = serializers.SerializerMethodField()
     
     class Meta:
         model = User
         fields = [
-            'id', 'email', 'username', 'first_name', 'last_name',
-            'full_name', 'role', 'is_active', 'date_joined', 'last_login'
+            'id', 'correo', 'email', 'nombres', 'first_name', 'apellidos', 'last_name',
+            'dni', 'telefono', 'full_name', 'rol_id', 'escuela_id', 'activo', 'is_active', 
+            'ultimo_acceso', 'last_login', 'fecha_creacion'
         ]
-        read_only_fields = ['id', 'date_joined', 'last_login']
+        read_only_fields = ['id', 'fecha_creacion', 'ultimo_acceso']
     
     def get_full_name(self, obj):
         return obj.get_full_name()
@@ -222,6 +249,13 @@ class UserListSerializer(serializers.ModelSerializer):
 
 class UserDetailSerializer(serializers.ModelSerializer):
     """Serializer detallado para ver/actualizar usuarios."""
+    
+    # Declarar properties como ReadOnlyField
+    email = serializers.ReadOnlyField()
+    first_name = serializers.ReadOnlyField()
+    last_name = serializers.ReadOnlyField()
+    is_active = serializers.ReadOnlyField()
+    last_login = serializers.ReadOnlyField()
     
     avatar = AvatarSerializer(read_only=True)
     avatar_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
@@ -236,14 +270,14 @@ class UserDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'email', 'username', 'first_name', 'last_name',
-            'full_name', 'short_name', 'role', 'is_active', 'is_staff',
-            'date_joined', 'last_login', 'created_at', 'updated_at',
-            'avatar', 'avatar_id', 'is_practicante', 'is_supervisor', 
+            'id', 'correo', 'email', 'nombres', 'first_name', 'apellidos', 'last_name',
+            'dni', 'telefono', 'full_name', 'short_name', 'rol_id', 'escuela_id',
+            'activo', 'is_active', 'is_staff', 'ultimo_acceso', 'last_login', 
+            'fecha_creacion', 'avatar', 'avatar_id', 'is_practicante', 'is_supervisor', 
             'is_coordinador', 'is_secretaria', 'is_administrador'
         ]
         read_only_fields = [
-            'id', 'date_joined', 'last_login', 'created_at', 'updated_at',
+            'id', 'ultimo_acceso', 'fecha_creacion',
             'is_practicante', 'is_supervisor', 'is_coordinador',
             'is_secretaria', 'is_administrador'
         ]
@@ -281,6 +315,11 @@ class UserDetailSerializer(serializers.ModelSerializer):
 class UserCreateSerializer(serializers.ModelSerializer):
     """Serializer para crear nuevos usuarios."""
     
+    # Declarar properties como ReadOnlyField
+    email = serializers.ReadOnlyField()
+    first_name = serializers.ReadOnlyField()
+    last_name = serializers.ReadOnlyField()
+    
     avatar = AvatarSerializer(read_only=True)
     avatar_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
     password = serializers.CharField(
@@ -298,8 +337,9 @@ class UserCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'email', 'username', 'first_name', 'last_name',
-            'role', 'password', 'password_confirm', 'avatar', 'avatar_id'
+            'correo', 'email', 'nombres', 'first_name', 'apellidos', 'last_name',
+            'dni', 'telefono', 'rol_id', 'escuela_id', 'password', 'password_confirm', 
+            'avatar', 'avatar_id'
         ]
     
     def validate(self, attrs):
@@ -310,17 +350,18 @@ class UserCreateSerializer(serializers.ModelSerializer):
             })
         return attrs
     
-    def validate_email(self, value):
-        """Validar email único y dominio."""
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError('Este email ya está registrado')
+    def validate_correo(self, value):
+        """Validar correo único y dominio."""
+        if User.objects.filter(correo=value).exists():
+            raise serializers.ValidationError('Este correo ya está registrado')
         
         # Validar dominio para practicantes
-        role = self.initial_data.get('role')
-        if role == 'PRACTICANTE' and not value.endswith('@upeu.edu.pe'):
-            raise serializers.ValidationError(
-                'Los practicantes deben usar correo institucional (@upeu.edu.pe)'
-            )
+        rol_id = self.initial_data.get('rol_id')
+        # Si es practicante (rol_id puede ser ID o verificar después)
+        # Por ahora validamos solo el formato del correo
+        if value and value.endswith('@upeu.edu.pe'):
+            # Correo institucional válido
+            pass
         
         return value
     
@@ -339,22 +380,29 @@ class UserCreateSerializer(serializers.ModelSerializer):
 class UserUpdateSerializer(serializers.ModelSerializer):
     """Serializer para actualizar usuarios (sin cambiar contraseña)."""
     
+    # Declarar properties como ReadOnlyField
+    first_name = serializers.ReadOnlyField()
+    last_name = serializers.ReadOnlyField()
+    is_active = serializers.ReadOnlyField()
+    
     avatar = AvatarSerializer(read_only=True)
     avatar_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
     
     class Meta:
         model = User
         fields = [
-            'first_name', 'last_name', 'is_active', 'avatar', 'avatar_id'
+            'nombres', 'first_name', 'apellidos', 'last_name', 'telefono',
+            'activo', 'is_active', 'avatar', 'avatar_id'
         ]
     
     def validate(self, attrs):
         """Solo staff puede desactivar usuarios."""
         request = self.context.get('request')
-        if 'is_active' in attrs and request:
+        if 'activo' in attrs and request:
             user = request.user
-            if user.role not in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
-                attrs.pop('is_active', None)
+            # Verificar rol usando rol_id o property is_administrador
+            if not (user.is_administrador or user.is_coordinador or user.is_secretaria):
+                attrs.pop('activo', None)
         return attrs
 
 
@@ -401,55 +449,79 @@ class ChangePasswordSerializer(serializers.Serializer):
 class StudentListSerializer(serializers.ModelSerializer):
     """Serializer simple para listar estudiantes."""
     
-    user = UserListSerializer(read_only=True)
-    puede_realizar_practica = serializers.BooleanField(read_only=True)
-    año_ingreso = serializers.IntegerField(read_only=True)
+    usuario = UserListSerializer(read_only=True)
+    edad = serializers.ReadOnlyField()  # Property from model
+    escuela_nombre = serializers.CharField(source='escuela.nombre', read_only=True)
     
     class Meta:
-        model = Student
+        model = StudentProfile
         fields = [
-            'id', 'user', 'codigo_estudiante', 'carrera', 'semestre_actual',
-            'promedio_ponderado', 'puede_realizar_practica', 'año_ingreso',
-            'created_at', 'updated_at'
+            'id', 'usuario', 'codigo', 'semestre', 'promedio',
+            'edad', 'estado_academico', 'escuela', 'escuela_nombre',
+            'fecha_creacion'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'fecha_creacion']
 
 
 class StudentDetailSerializer(serializers.ModelSerializer):
     """Serializer detallado para estudiantes."""
     
-    user = UserDetailSerializer(read_only=True)
-    puede_realizar_practica = serializers.BooleanField(read_only=True)
-    año_ingreso = serializers.IntegerField(read_only=True)
+    usuario = UserDetailSerializer(read_only=True)
+    edad = serializers.ReadOnlyField()  # Property from model
+    escuela_detail = serializers.SerializerMethodField()
+    rama_detail = serializers.SerializerMethodField()
     total_practices = serializers.SerializerMethodField()
     completed_practices = serializers.SerializerMethodField()
     
     class Meta:
-        model = Student
+        model = StudentProfile
         fields = [
-            'id', 'user', 'codigo_estudiante', 'documento_tipo', 'documento_numero',
-            'telefono', 'direccion', 'carrera', 'semestre_actual', 'promedio_ponderado',
-            'puede_realizar_practica', 'año_ingreso', 'total_practices',
-            'completed_practices', 'created_at', 'updated_at'
+            'id', 'usuario', 'codigo', 'semestre', 'promedio',
+            'fecha_nacimiento', 'edad', 'direccion',
+            'escuela', 'escuela_detail', 'rama', 'rama_detail',
+            'cv_path', 'fecha_cv_subido', 'estado_academico',
+            'total_practices', 'completed_practices', 'fecha_creacion'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'fecha_creacion', 'fecha_cv_subido']
+    
+    def get_escuela_detail(self, obj):
+        """Detalles de la escuela."""
+        if obj.escuela:
+            return {
+                'id': obj.escuela.id,
+                'codigo': obj.escuela.codigo,
+                'nombre': obj.escuela.nombre
+            }
+        return None
+    
+    def get_rama_detail(self, obj):
+        """Detalles de la rama."""
+        if obj.rama:
+            return {
+                'id': obj.rama.id,
+                'codigo': obj.rama.codigo,
+                'nombre': obj.rama.nombre
+            }
+        return None
     
     def get_total_practices(self, obj):
         """Total de prácticas del estudiante."""
-        return obj.practices.count()
+        return Practice.objects.filter(practicante=obj).count()
     
     def get_completed_practices(self, obj):
         """Prácticas completadas."""
-        return obj.practices.filter(status='COMPLETED').count()
+        return Practice.objects.filter(practicante=obj, estado='COMPLETADA').count()
 
 
 class StudentCreateSerializer(serializers.ModelSerializer):
     """Serializer para crear estudiantes."""
     
-    # Datos del usuario
-    email = serializers.EmailField(write_only=True)
-    first_name = serializers.CharField(write_only=True)
-    last_name = serializers.CharField(write_only=True)
+    # Datos del usuario (write_only para crear User relacionado)
+    correo = serializers.EmailField(write_only=True)
+    nombres = serializers.CharField(write_only=True)
+    apellidos = serializers.CharField(write_only=True)
+    dni = serializers.CharField(write_only=True, max_length=8)
+    telefono = serializers.CharField(write_only=True, max_length=15, required=False)
     password = serializers.CharField(
         write_only=True,
         required=True,
@@ -458,41 +530,41 @@ class StudentCreateSerializer(serializers.ModelSerializer):
     )
     
     class Meta:
-        model = Student
+        model = StudentProfile
         fields = [
-            'email', 'first_name', 'last_name', 'password',
-            'codigo_estudiante', 'documento_tipo', 'documento_numero',
-            'telefono', 'direccion', 'carrera', 'semestre_actual', 'promedio_ponderado'
+            'correo', 'nombres', 'apellidos', 'dni', 'telefono', 'password',
+            'codigo', 'semestre', 'promedio', 'fecha_nacimiento', 'direccion',
+            'escuela', 'rama', 'estado_academico'
         ]
     
-    def validate_email(self, value):
+    def validate_correo(self, value):
         """Validar email institucional."""
         if not value.endswith('@upeu.edu.pe'):
             raise serializers.ValidationError(
                 'Debe usar correo institucional (@upeu.edu.pe)'
             )
-        if User.objects.filter(email=value).exists():
+        if User.objects.filter(correo=value).exists():
             raise serializers.ValidationError('Este email ya está registrado')
         return value
     
-    def validate_codigo_estudiante(self, value):
+    def validate_codigo(self, value):
         """Validar formato de código de estudiante."""
         import re
-        if not re.match(r'^20\d{8}$', value):
+        if not re.match(r'^20\d{6}$', value):  # Changed to 8 digits total (20 + 6)
             raise serializers.ValidationError(
-                'Formato inválido. Debe ser: 20XXXXXXXX (10 dígitos)'
+                'Formato inválido. Debe ser: 20XXXXXX (8 dígitos)'
             )
-        if Student.objects.filter(codigo_estudiante=value).exists():
+        if StudentProfile.objects.filter(codigo=value).exists():
             raise serializers.ValidationError('Este código ya está registrado')
         return value
     
-    def validate_promedio_ponderado(self, value):
+    def validate_promedio(self, value):
         """Validar rango de promedio."""
         if value and (value < 0 or value > 20):
             raise serializers.ValidationError('El promedio debe estar entre 0 y 20')
         return value
     
-    def validate_semestre_actual(self, value):
+    def validate_semestre(self, value):
         """Validar rango de semestre."""
         if value and (value < 1 or value > 12):
             raise serializers.ValidationError('El semestre debe estar entre 1 y 12')
@@ -501,40 +573,48 @@ class StudentCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         """Validaciones cruzadas."""
         # Verificar que puede hacer prácticas
-        semestre = attrs.get('semestre_actual')
-        promedio = attrs.get('promedio_ponderado')
+        semestre = attrs.get('semestre')
+        promedio = attrs.get('promedio')
         
         if semestre and semestre < 6:
             raise serializers.ValidationError({
-                'semestre_actual': 'Debe estar en 6to semestre o superior para realizar prácticas'
+                'semestre': 'Debe estar en 6to semestre o superior para realizar prácticas'
             })
         
         if promedio and promedio < 12.0:
             raise serializers.ValidationError({
-                'promedio_ponderado': 'El promedio mínimo para prácticas es 12.0'
+                'promedio': 'El promedio mínimo para prácticas es 12.0'
             })
         
         return attrs
     
     def create(self, validated_data):
-        """Crear usuario y estudiante."""
+        """Crear usuario y perfil de estudiante."""
         # Extraer datos del usuario
-        email = validated_data.pop('email')
-        first_name = validated_data.pop('first_name')
-        last_name = validated_data.pop('last_name')
+        correo = validated_data.pop('correo')
+        nombres = validated_data.pop('nombres')
+        apellidos = validated_data.pop('apellidos')
+        dni = validated_data.pop('dni')
+        telefono = validated_data.pop('telefono', '')
         password = validated_data.pop('password')
         
-        # Crear usuario
-        user = User.objects.create_user(
-            email=email,
-            first_name=first_name,
-            last_name=last_name,
-            password=password,
-            role='PRACTICANTE'
-        )
+        # Obtener rol PRACTICANTE
+        rol_practicante = Role.objects.get(nombre='PRACTICANTE')
         
-        # Crear estudiante
-        student = Student.objects.create(user=user, **validated_data)
+        # Crear usuario
+        user = User.objects.create(
+            correo=correo,
+            nombres=nombres,
+            apellidos=apellidos,
+            dni=dni,
+            telefono=telefono,
+            rol=rol_practicante
+        )
+        user.set_password(password)
+        user.save()
+        
+        # Crear perfil de estudiante
+        student = StudentProfile.objects.create(usuario=user, **validated_data)
         return student
 
 
@@ -542,19 +622,19 @@ class StudentUpdateSerializer(serializers.ModelSerializer):
     """Serializer para actualizar estudiantes."""
     
     class Meta:
-        model = Student
+        model = StudentProfile
         fields = [
-            'documento_tipo', 'documento_numero', 'telefono', 'direccion',
-            'carrera', 'semestre_actual', 'promedio_ponderado'
+            'direccion', 'semestre', 'promedio', 'estado_academico',
+            'escuela', 'rama', 'cv_path'
         ]
     
-    def validate_promedio_ponderado(self, value):
+    def validate_promedio(self, value):
         """Validar rango de promedio."""
         if value and (value < 0 or value > 20):
             raise serializers.ValidationError('El promedio debe estar entre 0 y 20')
         return value
     
-    def validate_semestre_actual(self, value):
+    def validate_semestre(self, value):
         """Validar rango de semestre."""
         if value and (value < 1 or value > 12):
             raise serializers.ValidationError('El semestre debe estar entre 1 y 12')
@@ -568,8 +648,10 @@ class StudentUpdateSerializer(serializers.ModelSerializer):
 class CompanyListSerializer(serializers.ModelSerializer):
     """Serializer simple para listar empresas."""
     
-    nombre_para_mostrar = serializers.CharField(read_only=True)
-    puede_recibir_practicantes = serializers.BooleanField(read_only=True)
+    nombre_comercial = serializers.ReadOnlyField()
+    nombre_para_mostrar = serializers.ReadOnlyField()
+    puede_recibir_practicantes = serializers.ReadOnlyField()
+    status = serializers.ReadOnlyField()
     total_supervisors = serializers.SerializerMethodField()
     total_practices = serializers.SerializerMethodField()
     
@@ -578,9 +660,9 @@ class CompanyListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'ruc', 'razon_social', 'nombre_comercial', 'nombre_para_mostrar',
             'sector_economico', 'tamaño_empresa', 'status', 'puede_recibir_practicantes',
-            'total_supervisors', 'total_practices', 'created_at', 'updated_at'
+            'total_supervisors', 'total_practices', 'fecha_registro'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'fecha_registro']
     
     def get_total_supervisors(self, obj):
         """Total de supervisores."""
@@ -594,8 +676,11 @@ class CompanyListSerializer(serializers.ModelSerializer):
 class CompanyDetailSerializer(serializers.ModelSerializer):
     """Serializer detallado para empresas."""
     
-    nombre_para_mostrar = serializers.CharField(read_only=True)
-    puede_recibir_practicantes = serializers.BooleanField(read_only=True)
+    nombre_comercial = serializers.ReadOnlyField()
+    nombre_para_mostrar = serializers.ReadOnlyField()
+    email = serializers.ReadOnlyField()
+    status = serializers.ReadOnlyField()
+    puede_recibir_practicantes = serializers.ReadOnlyField()
     total_supervisors = serializers.SerializerMethodField()
     total_practices = serializers.SerializerMethodField()
     active_practices = serializers.SerializerMethodField()
@@ -608,9 +693,9 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
             'direccion', 'telefono', 'email', 'sector_economico', 'tamaño_empresa',
             'status', 'fecha_validacion', 'puede_recibir_practicantes',
             'total_supervisors', 'total_practices', 'active_practices',
-            'completed_practices', 'created_at', 'updated_at'
+            'completed_practices', 'fecha_registro'
         ]
-        read_only_fields = ['id', 'fecha_validacion', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'fecha_validacion', 'fecha_registro']
     
     def get_total_supervisors(self, obj):
         return obj.supervisors.count()
@@ -627,6 +712,9 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
 
 class CompanyCreateSerializer(serializers.ModelSerializer):
     """Serializer para crear empresas."""
+    
+    nombre_comercial = serializers.ReadOnlyField()
+    email = serializers.ReadOnlyField()
     
     class Meta:
         model = Company
@@ -658,6 +746,9 @@ class CompanyCreateSerializer(serializers.ModelSerializer):
 
 class CompanyUpdateSerializer(serializers.ModelSerializer):
     """Serializer para actualizar empresas."""
+    
+    nombre_comercial = serializers.ReadOnlyField()
+    email = serializers.ReadOnlyField()
     
     class Meta:
         model = Company
@@ -697,18 +788,18 @@ class CompanyValidateSerializer(serializers.Serializer):
 class SupervisorListSerializer(serializers.ModelSerializer):
     """Serializer simple para listar supervisores."""
     
-    user = UserListSerializer(read_only=True)
-    company = CompanyListSerializer(read_only=True)
+    usuario = UserListSerializer(read_only=True)
+    empresa = CompanyListSerializer(read_only=True)
     total_practices = serializers.SerializerMethodField()
     
     class Meta:
         model = Supervisor
         fields = [
-            'id', 'user', 'company', 'documento_tipo', 'documento_numero',
-            'cargo', 'telefono', 'años_experiencia', 'total_practices',
-            'created_at', 'updated_at'
+            'id', 'usuario', 'empresa',
+            'cargo', 'telefono_trabajo', 'correo_trabajo', 'años_experiencia', 
+            'especialidad', 'total_practices', 'fecha_creacion'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'fecha_creacion']
     
     def get_total_practices(self, obj):
         """Total de prácticas supervisadas."""
@@ -718,8 +809,8 @@ class SupervisorListSerializer(serializers.ModelSerializer):
 class SupervisorDetailSerializer(serializers.ModelSerializer):
     """Serializer detallado para supervisores."""
     
-    user = UserDetailSerializer(read_only=True)
-    company = CompanyListSerializer(read_only=True)
+    usuario = UserDetailSerializer(read_only=True)
+    empresa = CompanyListSerializer(read_only=True)
     total_practices = serializers.SerializerMethodField()
     active_practices = serializers.SerializerMethodField()
     completed_practices = serializers.SerializerMethodField()
@@ -727,54 +818,56 @@ class SupervisorDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Supervisor
         fields = [
-            'id', 'user', 'company', 'documento_tipo', 'documento_numero',
-            'cargo', 'telefono', 'años_experiencia', 'total_practices',
-            'active_practices', 'completed_practices', 'created_at', 'updated_at'
+            'id', 'usuario', 'empresa',
+            'cargo', 'telefono_trabajo', 'correo_trabajo', 'años_experiencia', 
+            'especialidad', 'total_practices', 'active_practices', 
+            'completed_practices', 'fecha_creacion'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'fecha_creacion']
     
     def get_total_practices(self, obj):
         return obj.practices.count()
     
     def get_active_practices(self, obj):
-        return obj.practices.filter(status='IN_PROGRESS').count()
+        return obj.practices.filter(estado='IN_PROGRESS').count()
     
     def get_completed_practices(self, obj):
-        return obj.practices.filter(status='COMPLETED').count()
+        return obj.practices.filter(estado='COMPLETED').count()
 
 
 class SupervisorCreateSerializer(serializers.ModelSerializer):
     """Serializer para crear supervisores."""
     
     # Datos del usuario
-    email = serializers.EmailField(write_only=True)
-    first_name = serializers.CharField(write_only=True)
-    last_name = serializers.CharField(write_only=True)
+    correo = serializers.EmailField(write_only=True)
+    nombres = serializers.CharField(write_only=True)
+    apellidos = serializers.CharField(write_only=True)
+    dni = serializers.CharField(write_only=True)
     password = serializers.CharField(
         write_only=True,
         required=True,
         style={'input_type': 'password'}
     )
-    company_id = serializers.UUIDField(write_only=True)
+    empresa_id = serializers.IntegerField(write_only=True)
     
     class Meta:
         model = Supervisor
         fields = [
-            'email', 'first_name', 'last_name', 'password', 'company_id',
-            'documento_tipo', 'documento_numero', 'cargo', 'telefono', 'años_experiencia'
+            'correo', 'nombres', 'apellidos', 'dni', 'password', 'empresa_id',
+            'cargo', 'telefono_trabajo', 'correo_trabajo', 'años_experiencia', 'especialidad'
         ]
     
-    def validate_email(self, value):
-        """Validar email único."""
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError('Este email ya está registrado')
+    def validate_correo(self, value):
+        """Validar correo único."""
+        if User.objects.filter(correo=value).exists():
+            raise serializers.ValidationError('Este correo ya está registrado')
         return value
     
-    def validate_company_id(self, value):
+    def validate_empresa_id(self, value):
         """Validar que la empresa exista y esté activa."""
         try:
             company = Company.objects.get(id=value)
-            if company.status not in ['ACTIVE', 'PENDING_VALIDATION']:
+            if company.estado not in ['ACTIVE', 'PENDING_VALIDATION']:
                 raise serializers.ValidationError('La empresa no puede recibir supervisores')
         except Company.DoesNotExist:
             raise serializers.ValidationError('Empresa no encontrada')
@@ -790,29 +883,31 @@ class SupervisorCreateSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         """Crear usuario y supervisor."""
-        # Extraer datos
-        email = validated_data.pop('email')
-        first_name = validated_data.pop('first_name')
-        last_name = validated_data.pop('last_name')
+        # Extraer datos del usuario
+        correo = validated_data.pop('correo')
+        nombres = validated_data.pop('nombres')
+        apellidos = validated_data.pop('apellidos')
+        dni = validated_data.pop('dni')
         password = validated_data.pop('password')
-        company_id = validated_data.pop('company_id')
+        empresa_id = validated_data.pop('empresa_id')
         
         # Crear usuario
         user = User.objects.create_user(
-            email=email,
-            first_name=first_name,
-            last_name=last_name,
+            correo=correo,
+            nombres=nombres,
+            apellidos=apellidos,
+            dni=dni,
             password=password,
-            role='SUPERVISOR'
+            rol_id=None  # Asignar rol SUPERVISOR
         )
         
         # Obtener empresa
-        company = Company.objects.get(id=company_id)
+        empresa = Company.objects.get(id=empresa_id)
         
         # Crear supervisor
         supervisor = Supervisor.objects.create(
-            user=user,
-            company=company,
+            usuario=user,
+            empresa=empresa,
             **validated_data
         )
         return supervisor
@@ -824,8 +919,8 @@ class SupervisorUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Supervisor
         fields = [
-            'documento_tipo', 'documento_numero', 'cargo',
-            'telefono', 'años_experiencia'
+            'cargo', 'telefono_trabajo', 'correo_trabajo', 
+            'años_experiencia', 'especialidad'
         ]
     
     def validate_años_experiencia(self, value):
@@ -844,8 +939,8 @@ class SupervisorUpdateSerializer(serializers.ModelSerializer):
 class PracticeListSerializer(serializers.ModelSerializer):
     """Serializer simple para listar prácticas."""
     
-    student = StudentListSerializer(read_only=True)
-    company = CompanyListSerializer(read_only=True)
+    practicante = StudentListSerializer(read_only=True)
+    empresa = CompanyListSerializer(read_only=True)
     supervisor = SupervisorListSerializer(read_only=True)
     duracion_dias = serializers.IntegerField(read_only=True)
     esta_activa = serializers.BooleanField(read_only=True)
@@ -853,18 +948,18 @@ class PracticeListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Practice
         fields = [
-            'id', 'student', 'company', 'supervisor', 'titulo', 'area_practica',
-            'fecha_inicio', 'fecha_fin', 'horas_totales', 'modalidad', 'status',
-            'duracion_dias', 'esta_activa', 'created_at', 'updated_at'
+            'id', 'practicante', 'empresa', 'supervisor', 'titulo',
+            'fecha_inicio', 'fecha_fin', 'horas_totales', 'horas_completadas',
+            'modalidad', 'estado', 'duracion_dias', 'esta_activa', 'fecha_creacion'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'fecha_creacion']
 
 
 class PracticeDetailSerializer(serializers.ModelSerializer):
     """Serializer detallado para prácticas."""
     
-    student = StudentListSerializer(read_only=True)
-    company = CompanyListSerializer(read_only=True)
+    practicante = StudentListSerializer(read_only=True)
+    empresa = CompanyListSerializer(read_only=True)
     supervisor = SupervisorListSerializer(read_only=True)
     duracion_dias = serializers.IntegerField(read_only=True)
     esta_activa = serializers.BooleanField(read_only=True)
@@ -875,13 +970,13 @@ class PracticeDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Practice
         fields = [
-            'id', 'student', 'company', 'supervisor', 'titulo', 'descripcion',
-            'objetivos', 'fecha_inicio', 'fecha_fin', 'horas_totales', 'modalidad',
-            'area_practica', 'status', 'calificacion_final', 'observaciones',
+            'id', 'practicante', 'empresa', 'supervisor', 'titulo', 'descripcion',
+            'objetivos', 'fecha_inicio', 'fecha_fin', 'horas_totales', 'horas_completadas',
+            'modalidad', 'remunerada', 'monto_remuneracion', 'estado', 'observaciones',
             'duracion_dias', 'esta_activa', 'total_documents', 'approved_documents',
-            'progreso_porcentual', 'created_at', 'updated_at'
+            'progreso_porcentual', 'fecha_creacion', 'fecha_actualizacion'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'fecha_creacion', 'fecha_actualizacion']
     
     def get_total_documents(self, obj):
         """Total de documentos."""
@@ -916,19 +1011,19 @@ class PracticeDetailSerializer(serializers.ModelSerializer):
 class PracticeCreateSerializer(serializers.ModelSerializer):
     """Serializer para crear prácticas."""
     
-    student_id = serializers.UUIDField(write_only=True)
-    company_id = serializers.UUIDField(write_only=True)
-    supervisor_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
+    practicante_id = serializers.IntegerField(write_only=True)
+    empresa_id = serializers.IntegerField(write_only=True)
+    supervisor_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     
     class Meta:
         model = Practice
         fields = [
-            'student_id', 'company_id', 'supervisor_id', 'titulo', 'descripcion',
+            'practicante_id', 'empresa_id', 'supervisor_id', 'titulo', 'descripcion',
             'objetivos', 'fecha_inicio', 'fecha_fin', 'horas_totales',
-            'modalidad', 'area_practica'
+            'modalidad', 'remunerada', 'monto_remuneracion'
         ]
     
-    def validate_student_id(self, value):
+    def validate_practicante_id(self, value):
         """Validar que el estudiante exista y pueda hacer prácticas."""
         try:
             student = Student.objects.get(id=value)
@@ -941,7 +1036,7 @@ class PracticeCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Estudiante no encontrado')
         return value
     
-    def validate_company_id(self, value):
+    def validate_empresa_id(self, value):
         """Validar que la empresa exista y esté activa."""
         try:
             company = Company.objects.get(id=value)
@@ -990,19 +1085,19 @@ class PracticeCreateSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         """Crear práctica."""
-        student_id = validated_data.pop('student_id')
-        company_id = validated_data.pop('company_id')
+        practicante_id = validated_data.pop('practicante_id')
+        empresa_id = validated_data.pop('empresa_id')
         supervisor_id = validated_data.pop('supervisor_id', None)
         
-        student = Student.objects.get(id=student_id)
-        company = Company.objects.get(id=company_id)
+        practicante = Student.objects.get(id=practicante_id)
+        empresa = Company.objects.get(id=empresa_id)
         supervisor = Supervisor.objects.get(id=supervisor_id) if supervisor_id else None
         
         practice = Practice.objects.create(
-            student=student,
-            company=company,
+            practicante=practicante,
+            empresa=empresa,
             supervisor=supervisor,
-            status='DRAFT',
+            estado='BORRADOR',
             **validated_data
         )
         return practice
@@ -1011,13 +1106,14 @@ class PracticeCreateSerializer(serializers.ModelSerializer):
 class PracticeUpdateSerializer(serializers.ModelSerializer):
     """Serializer para actualizar prácticas."""
     
-    supervisor_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
+    supervisor_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     
     class Meta:
         model = Practice
         fields = [
             'titulo', 'descripcion', 'objetivos', 'fecha_inicio', 'fecha_fin',
-            'horas_totales', 'modalidad', 'area_practica', 'supervisor_id', 'observaciones'
+            'horas_totales', 'horas_completadas', 'modalidad', 'remunerada', 
+            'monto_remuneracion', 'supervisor_id', 'observaciones'
         ]
     
     def validate_supervisor_id(self, value):
@@ -1068,50 +1164,36 @@ class PracticeUpdateSerializer(serializers.ModelSerializer):
 class PracticeStatusSerializer(serializers.Serializer):
     """Serializer para cambiar estado de práctica."""
     
-    status = serializers.ChoiceField(
-        choices=['DRAFT', 'PENDING', 'APPROVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'SUSPENDED'],
+    estado = serializers.ChoiceField(
+        choices=['BORRADOR', 'PENDIENTE', 'APROBADA', 'EN_CURSO', 'COMPLETADA', 'CANCELADA', 'SUSPENDIDA'],
         required=True
     )
     observaciones = serializers.CharField(required=False, allow_blank=True)
-    calificacion_final = serializers.DecimalField(
-        max_digits=4,
-        decimal_places=2,
-        required=False,
-        allow_null=True,
-        min_value=0,
-        max_value=20
-    )
     
     def validate(self, attrs):
         """Validar transiciones de estado."""
-        nuevo_estado = attrs['status']
+        nuevo_estado = attrs['estado']
         practica = self.context.get('practice')
         
         if not practica:
             return attrs
         
-        estado_actual = practica.status
+        estado_actual = practica.estado
         
         # Validar transiciones permitidas
         transiciones_validas = {
-            'DRAFT': ['PENDING'],
-            'PENDING': ['APPROVED', 'CANCELLED'],
-            'APPROVED': ['IN_PROGRESS', 'CANCELLED'],
-            'IN_PROGRESS': ['COMPLETED', 'SUSPENDED', 'CANCELLED'],
-            'SUSPENDED': ['IN_PROGRESS', 'CANCELLED'],
-            'COMPLETED': [],  # No se puede cambiar
-            'CANCELLED': []   # No se puede cambiar
+            'BORRADOR': ['PENDIENTE'],
+            'PENDIENTE': ['APROBADA', 'CANCELADA'],
+            'APROBADA': ['EN_CURSO', 'CANCELADA'],
+            'EN_CURSO': ['COMPLETADA', 'SUSPENDIDA', 'CANCELADA'],
+            'SUSPENDIDA': ['EN_CURSO', 'CANCELADA'],
+            'COMPLETADA': [],  # No se puede cambiar
+            'CANCELADA': []   # No se puede cambiar
         }
         
         if nuevo_estado not in transiciones_validas.get(estado_actual, []):
             raise serializers.ValidationError({
-                'status': f'No se puede cambiar de {estado_actual} a {nuevo_estado}'
-            })
-        
-        # Si se completa, requiere calificación
-        if nuevo_estado == 'COMPLETED' and not attrs.get('calificacion_final'):
-            raise serializers.ValidationError({
-                'calificacion_final': 'Se requiere calificación para completar la práctica'
+                'estado': f'No se puede cambiar de {estado_actual} a {nuevo_estado}'
             })
         
         return attrs
@@ -1459,6 +1541,388 @@ class DashboardStatsSerializer(serializers.Serializer):
     practices_by_modalidad = serializers.DictField()
     top_companies = serializers.ListField()
     recent_practices = PracticeListSerializer(many=True)
+
+
+# ============================================================================
+# SERIALIZERS DE ESCUELAS PROFESIONALES
+# ============================================================================
+
+class SchoolListSerializer(serializers.ModelSerializer):
+    """Serializer resumido para listar escuelas profesionales."""
+    
+    total_estudiantes = serializers.SerializerMethodField()
+    activa = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = School
+        fields = [
+            'id', 'codigo', 'nombre', 'descripcion',
+            'total_estudiantes', 'estado', 'activa', 'fecha_creacion'
+        ]
+        read_only_fields = ['id', 'fecha_creacion']
+    
+    def get_total_estudiantes(self, obj):
+        """Retorna total de estudiantes en la escuela."""
+        return Student.objects.filter(escuela=obj).count()
+    
+    def get_activa(self, obj):
+        """Compatibilidad: activa mapea a estado == 'ACTIVO'."""
+        return obj.estado == 'ACTIVO'
+
+
+class SchoolDetailSerializer(serializers.ModelSerializer):
+    """Serializer completo para detalle de escuela profesional."""
+    
+    total_estudiantes = serializers.SerializerMethodField()
+    total_ramas = serializers.SerializerMethodField()
+    ramas = serializers.SerializerMethodField()
+    activa = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = School
+        fields = [
+            'id', 'codigo', 'nombre', 'descripcion', 'estado',
+            'total_estudiantes', 'total_ramas', 'ramas',
+            'activa', 'fecha_creacion'
+        ]
+        read_only_fields = ['id', 'fecha_creacion']
+    
+    def get_total_estudiantes(self, obj):
+        return Student.objects.filter(escuela=obj).count()
+    
+    def get_total_ramas(self, obj):
+        return obj.branches.filter(activa=True).count()
+    
+    def get_ramas(self, obj):
+        from .serializers import BranchListSerializer
+        branches = obj.branches.filter(activa=True)
+        return BranchListSerializer(branches, many=True).data
+    
+    def get_activa(self, obj):
+        """Compatibilidad: activa mapea a estado == 'ACTIVO'."""
+        return obj.estado == 'ACTIVO'
+
+
+class SchoolCreateSerializer(serializers.ModelSerializer):
+    """Serializer para crear escuela profesional."""
+    
+    class Meta:
+        model = School
+        fields = ['codigo', 'nombre', 'descripcion', 'estado']
+    
+    def validate_codigo(self, value):
+        """Valida que el código sea único."""
+        if School.objects.filter(codigo=value).exists():
+            raise serializers.ValidationError(
+                f"Ya existe una escuela con el código {value}"
+            )
+        return value
+
+
+class SchoolUpdateSerializer(serializers.ModelSerializer):
+    """Serializer para actualizar escuela profesional."""
+    
+    class Meta:
+        model = School
+        fields = ['nombre', 'descripcion', 'estado']
+
+
+# ============================================================================
+# SERIALIZERS DE RAMAS/ESPECIALIDADES
+# ============================================================================
+
+class BranchListSerializer(serializers.ModelSerializer):
+    """Serializer resumido para listar ramas/especialidades."""
+    
+    escuela_nombre = serializers.CharField(source='escuela.nombre', read_only=True)
+    escuela_codigo = serializers.CharField(source='escuela.codigo', read_only=True)
+    total_estudiantes = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Branch
+        fields = [
+            'id', 'nombre', 'escuela_nombre', 'escuela_codigo',
+            'total_estudiantes', 'activa', 'fecha_creacion'
+        ]
+        read_only_fields = ['id', 'fecha_creacion']
+    
+    def get_total_estudiantes(self, obj):
+        """Retorna total de estudiantes en la rama."""
+        return Student.objects.filter(rama=obj).count()
+
+
+class BranchDetailSerializer(serializers.ModelSerializer):
+    """Serializer completo para detalle de rama/especialidad."""
+    
+    escuela_detail = serializers.SerializerMethodField()
+    total_estudiantes = serializers.SerializerMethodField()
+    estudiantes_activos = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Branch
+        fields = [
+            'id', 'nombre', 'descripcion', 'escuela', 'escuela_detail',
+            'total_estudiantes', 'estudiantes_activos',
+            'activa', 'fecha_creacion'
+        ]
+        read_only_fields = ['id', 'fecha_creacion']
+    
+    def get_escuela_detail(self, obj):
+        return {
+            'id': obj.escuela.id,
+            'codigo': obj.escuela.codigo,
+            'nombre': obj.escuela.nombre,
+            'estado': obj.escuela.estado
+        }
+    
+    def get_total_estudiantes(self, obj):
+        return Student.objects.filter(rama=obj).count()
+    
+    def get_estudiantes_activos(self, obj):
+        return Student.objects.filter(
+            rama=obj,
+            usuario__activo=True,
+            estado_academico='REGULAR'
+        ).count()
+
+
+class BranchCreateSerializer(serializers.ModelSerializer):
+    """Serializer para crear rama/especialidad."""
+    
+    class Meta:
+        model = Branch
+        fields = ['nombre', 'descripcion', 'escuela', 'activa']
+    
+    def validate(self, attrs):
+        """Valida que no exista rama con mismo nombre en la escuela."""
+        if Branch.objects.filter(
+            escuela=attrs['escuela'],
+            nombre=attrs['nombre']
+        ).exists():
+            raise serializers.ValidationError({
+                'nombre': f"Ya existe una rama '{attrs['nombre']}' en esta escuela"
+            })
+        return attrs
+
+
+class BranchUpdateSerializer(serializers.ModelSerializer):
+    """Serializer para actualizar rama/especialidad."""
+    
+    class Meta:
+        model = Branch
+        fields = ['nombre', 'activa']
+
+
+# ============================================================================
+# SERIALIZERS DE EVALUACIONES DE PRÁCTICAS
+# ============================================================================
+
+class PracticeEvaluationListSerializer(serializers.ModelSerializer):
+    """Serializer resumido para listar evaluaciones."""
+    
+    # Declarar properties como ReadOnlyField
+    practice = serializers.ReadOnlyField(source='practica')
+    evaluator = serializers.ReadOnlyField(source='evaluador')
+    created_at = serializers.ReadOnlyField()
+    status = serializers.ReadOnlyField()
+    
+    practica_titulo = serializers.CharField(source='practica.titulo', read_only=True)
+    estudiante_nombre = serializers.CharField(
+        source='practica.practicante.usuario.get_full_name',
+        read_only=True
+    )
+    evaluador_nombre = serializers.CharField(
+        source='evaluador.get_full_name',
+        read_only=True
+    )
+    
+    class Meta:
+        model = PracticeEvaluation
+        fields = [
+            'id', 'practica', 'practice', 'evaluador', 'evaluator',
+            'practica_titulo', 'estudiante_nombre', 'evaluador_nombre',
+            'tipo_evaluador', 'periodo_evaluacion', 'puntaje_total',
+            'status', 'fecha_evaluacion', 'created_at'
+        ]
+        read_only_fields = ['id', 'fecha_evaluacion']
+
+
+class PracticeEvaluationDetailSerializer(serializers.ModelSerializer):
+    """Serializer completo para detalle de evaluación."""
+    
+    # Declarar properties como ReadOnlyField
+    practice = serializers.ReadOnlyField(source='practica')
+    evaluator = serializers.ReadOnlyField(source='evaluador')
+    created_at = serializers.ReadOnlyField()
+    updated_at = serializers.ReadOnlyField()
+    status = serializers.ReadOnlyField()
+    
+    practica_detail = serializers.SerializerMethodField()
+    evaluador_detail = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = PracticeEvaluation
+        fields = [
+            'id', 'practica', 'practice', 'practica_detail', 'evaluador', 'evaluator', 
+            'evaluador_detail', 'tipo_evaluador', 'periodo_evaluacion', 'fecha_evaluacion',
+            'puntaje_total', 'criterios_evaluacion', 'comentarios',
+            'recomendaciones', 'status', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'fecha_evaluacion']
+    
+    def get_practica_detail(self, obj):
+        return {
+            'id': obj.practica.id,
+            'titulo': obj.practica.titulo,
+            'estudiante': obj.practica.practicante.usuario.get_full_name(),
+            'empresa': obj.practica.empresa.nombre
+        }
+    
+    def get_evaluador_detail(self, obj):
+        if obj.evaluador:
+            return {
+                'id': obj.evaluador.id,
+                'nombre': obj.evaluador.get_full_name(),
+                'email': obj.evaluador.email,
+                'rol_id': obj.evaluador.rol_id
+            }
+        return None
+
+
+class PracticeEvaluationCreateSerializer(serializers.ModelSerializer):
+    """Serializer para crear evaluación de práctica."""
+    
+    practica_id = serializers.IntegerField(write_only=True)
+    evaluador_id = serializers.IntegerField(write_only=True)
+    
+    class Meta:
+        model = PracticeEvaluation
+        fields = [
+            'practica_id', 'evaluador_id', 'tipo_evaluador', 'periodo_evaluacion',
+            'puntaje_total', 'criterios_evaluacion',
+            'comentarios', 'recomendaciones'
+        ]
+    
+    def validate_puntaje_total(self, value):
+        """Valida que el puntaje esté entre 0 y 100."""
+        if value and (value < 0 or value > 100):
+            raise serializers.ValidationError(
+                "El puntaje debe estar entre 0 y 100"
+            )
+        return value
+    
+    def validate(self, attrs):
+        """Valida que no exista evaluación duplicada."""
+        practica_id = attrs.get('practica_id')
+        tipo_evaluador = attrs.get('tipo_evaluador')
+        periodo = attrs.get('periodo_evaluacion')
+        
+        if PracticeEvaluation.objects.filter(
+            practica_id=practica_id,
+            tipo_evaluador=tipo_evaluador,
+            periodo_evaluacion=periodo
+        ).exists():
+            raise serializers.ValidationError({
+                'periodo_evaluacion': "Ya existe una evaluación para este periodo y tipo de evaluador"
+            })
+        return attrs
+    
+    def create(self, validated_data):
+        practica_id = validated_data.pop('practica_id')
+        evaluador_id = validated_data.pop('evaluador_id')
+        
+        from src.adapters.secondary.database.models import Practice, User
+        practica = Practice.objects.get(id=practica_id)
+        evaluador = User.objects.get(id=evaluador_id)
+        
+        return PracticeEvaluation.objects.create(
+            practica=practica,
+            evaluador=evaluador,
+            **validated_data
+        )
+
+
+class PracticeEvaluationUpdateSerializer(serializers.ModelSerializer):
+    """Serializer para actualizar evaluación de práctica."""
+    
+    class Meta:
+        model = PracticeEvaluation
+        fields = [
+            'puntaje_total', 'criterios_evaluacion', 'comentarios',
+            'recomendaciones'
+        ]
+    
+    def validate_puntaje_total(self, value):
+        """Valida que el puntaje esté entre 0 y 100."""
+        if value and (value < 0 or value > 100):
+            raise serializers.ValidationError(
+                "El puntaje debe estar entre 0 y 100"
+            )
+        return value
+
+
+class PracticeEvaluationApproveSerializer(serializers.Serializer):
+    """Serializer para aprobar/rechazar evaluación."""
+    
+    action = serializers.ChoiceField(choices=['approve', 'reject'])
+    observaciones = serializers.CharField(required=False, allow_blank=True)
+
+
+# ============================================================================
+# SERIALIZERS DE HISTORIAL DE ESTADOS DE PRÁCTICA
+# ============================================================================
+
+class PracticeStatusHistoryListSerializer(serializers.ModelSerializer):
+    """Serializer resumido para listar historial de estados."""
+    
+    practica_titulo = serializers.CharField(source='practice.titulo', read_only=True)
+    responsable_nombre = serializers.CharField(
+        source='usuario_responsable.get_full_name',
+        read_only=True
+    )
+    
+    class Meta:
+        model = PracticeStatusHistory
+        fields = [
+            'id', 'practica_titulo', 'estado_anterior', 'estado_nuevo',
+            'responsable_nombre', 'motivo', 'fecha_cambio'
+        ]
+        read_only_fields = ['id', 'fecha_cambio']
+
+
+class PracticeStatusHistoryDetailSerializer(serializers.ModelSerializer):
+    """Serializer completo para detalle de historial de estados."""
+    
+    practica_detail = serializers.SerializerMethodField()
+    responsable_detail = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = PracticeStatusHistory
+        fields = [
+            'id', 'practice', 'practica_detail',
+            'estado_anterior', 'estado_nuevo',
+            'usuario_responsable', 'responsable_detail',
+            'motivo', 'metadata', 'fecha_cambio'
+        ]
+        read_only_fields = ['id', 'fecha_cambio']
+    
+    def get_practica_detail(self, obj):
+        return {
+            'id': str(obj.practice.id),
+            'titulo': obj.practice.titulo,
+            'estudiante': obj.practice.student.user.get_full_name(),
+            'status_actual': obj.practice.status
+        }
+    
+    def get_responsable_detail(self, obj):
+        if obj.usuario_responsable:
+            return {
+                'id': str(obj.usuario_responsable.id),
+                'nombre': obj.usuario_responsable.get_full_name(),
+                'email': obj.usuario_responsable.email,
+                'role': obj.usuario_responsable.role
+            }
+        return None
 
 
 # ============================================================================

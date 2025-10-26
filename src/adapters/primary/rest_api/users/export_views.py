@@ -11,7 +11,7 @@ from rest_framework import status, permissions
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 from openpyxl import Workbook
 
-from src.adapters.secondary.database.models import User, Student
+from src.adapters.secondary.database.models import User, StudentProfile
 from src.infrastructure.security.permissions import IsAdminOnly
 
 
@@ -101,10 +101,10 @@ class ExportUsersXLSXView(APIView):
                 ws.append(PRACTICANTE_HEADERS)
                 # Cargar students en bloque
                 user_ids = [u.id for u in items]
-                students = {s.user_id: s for s in Student.objects.filter(user_id__in=user_ids)}
+                students = {s.usuario_id: s for s in StudentProfile.objects.filter(usuario_id__in=user_ids)}
                 for u in items:
                     s = students.get(u.id)
-                    codigo = s.codigo_estudiante if s else ''
+                    codigo = s.codigo if s else ''
                     nombre = u.first_name
                     apellidos = u.last_name
                     ws.append([

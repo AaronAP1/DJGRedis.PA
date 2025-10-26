@@ -69,7 +69,8 @@ class PermissionViewSet(viewsets.ModelViewSet):
     - DELETE /api/v2/permissions/{id}/ - Desactivar (admin only)
     """
     
-    queryset = Permission.objects.all().order_by('module', 'code')
+    # Permission mapea a upeu_permiso con campos: codigo (no code), nombre, module
+    queryset = Permission.objects.all().order_by('module', 'codigo')
     permission_classes = [IsAuthenticated]
     
     def get_serializer_class(self):

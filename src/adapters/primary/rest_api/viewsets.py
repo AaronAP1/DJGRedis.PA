@@ -30,7 +30,8 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from datetime import datetime
 
 from src.adapters.secondary.database.models import (
-    Student, Company, Supervisor, Practice, Document, Notification, Avatar
+    Student, Company, Supervisor, Practice, Document, Notification, Avatar,
+    School, Branch, PracticeEvaluation, PracticeStatusHistory
 )
 from .serializers import (
     # Avatar serializers
@@ -56,12 +57,25 @@ from .serializers import (
     # Notification serializers
     NotificationListSerializer, NotificationDetailSerializer, NotificationCreateSerializer,
     NotificationMarkAsReadSerializer,
+    # School serializers
+    SchoolListSerializer, SchoolDetailSerializer, SchoolCreateSerializer,
+    SchoolUpdateSerializer,
+    # Branch serializers
+    BranchListSerializer, BranchDetailSerializer, BranchCreateSerializer,
+    BranchUpdateSerializer,
+    # PracticeEvaluation serializers
+    PracticeEvaluationListSerializer, PracticeEvaluationDetailSerializer,
+    PracticeEvaluationCreateSerializer, PracticeEvaluationUpdateSerializer,
+    PracticeEvaluationApproveSerializer,
+    # PracticeStatusHistory serializers
+    PracticeStatusHistoryListSerializer, PracticeStatusHistoryDetailSerializer,
     # Stats serializers
     DashboardStatsSerializer,
 )
 from src.infrastructure.security.permissions import (
     # User permissions
     IsAdministrador, IsStaffMember, IsPracticante, IsSupervisor, IsCoordinador, IsSecretaria,
+    IsAdminOrCoordinador,
     # Company permissions
     CanManageCompanies, CanValidateCompany, CanViewCompany,
     # Student permissions
@@ -97,10 +111,10 @@ class UserViewSet(viewsets.ModelViewSet):
     
     queryset = User.objects.all()
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    search_fields = ['email', 'username', 'first_name', 'last_name']
-    filterset_fields = ['role', 'is_active']
-    ordering_fields = ['date_joined', 'last_login', 'email']
-    ordering = ['-date_joined']
+    search_fields = ['correo', 'nombres', 'apellidos', 'dni']
+    filterset_fields = ['rol_id', 'activo']
+    ordering_fields = ['fecha_creacion', 'correo']
+    ordering = ['-fecha_creacion']
     
     def get_serializer_class(self):
         """Retorna el serializer apropiado según la acción."""
@@ -416,12 +430,12 @@ class StudentViewSet(viewsets.ModelViewSet):
     - GET /api/students/{id}/practices/ - Prácticas del estudiante
     """
     
-    queryset = Student.objects.select_related('user').all()
+    queryset = Student.objects.select_related('usuario').all()
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    search_fields = ['codigo_estudiante', 'carrera', 'user__email', 'user__first_name', 'user__last_name']
-    filterset_fields = ['carrera', 'semestre_actual']
-    ordering_fields = ['created_at', 'promedio_ponderado', 'semestre_actual']
-    ordering = ['-created_at']
+    search_fields = ['codigo', 'usuario__correo', 'usuario__nombres', 'usuario__apellidos']
+    filterset_fields = ['semestre', 'escuela', 'rama']
+    ordering_fields = ['fecha_creacion', 'promedio', 'semestre']
+    ordering = ['-fecha_creacion']
     
     def get_serializer_class(self):
         """Retorna el serializer apropiado según la acción."""
@@ -570,10 +584,10 @@ class CompanyViewSet(viewsets.ModelViewSet):
     
     queryset = Company.objects.all()
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    search_fields = ['ruc', 'razon_social', 'nombre_comercial', 'sector_economico']
-    filterset_fields = ['status', 'sector_economico', 'tamaño_empresa']
-    ordering_fields = ['created_at', 'razon_social']
-    ordering = ['-created_at']
+    search_fields = ['ruc', 'razon_social', 'nombre', 'sector_economico']
+    filterset_fields = ['estado', 'sector_economico']
+    ordering_fields = ['fecha_registro', 'razon_social', 'nombre']
+    ordering = ['-fecha_registro']
     
     def get_serializer_class(self):
         """Retorna el serializer apropiado según la acción."""
@@ -643,7 +657,7 @@ class CompanyViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         
         # Actualizar estado
-        company.status = serializer.validated_data['status']
+        company.estado = serializer.validated_data['estado']
         if serializer.validated_data.get('observaciones'):
             # Puedes guardar observaciones en un campo de la empresa si existe
             pass
@@ -654,7 +668,7 @@ class CompanyViewSet(viewsets.ModelViewSet):
         
         return Response(
             {
-                'message': f'Empresa {company.razon_social} validada como {company.status}',
+                'message': f'Empresa {company.razon_social} validada como {company.estado}',
                 'company': CompanyDetailSerializer(company).data
             },
             status=status.HTTP_200_OK
@@ -667,7 +681,7 @@ class CompanyViewSet(viewsets.ModelViewSet):
         Suspender una empresa (solo Coordinador).
         """
         company = self.get_object()
-        company.status = 'SUSPENDED'
+        company.estado = 'SUSPENDED'
         company.save()
         
         return Response(
@@ -764,12 +778,12 @@ class SupervisorViewSet(viewsets.ModelViewSet):
     - GET /api/supervisors/{id}/practices/ - Prácticas supervisadas
     """
     
-    queryset = Supervisor.objects.select_related('user', 'company').all()
+    queryset = Supervisor.objects.select_related('usuario', 'empresa').all()
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    search_fields = ['user__email', 'user__first_name', 'user__last_name', 'cargo', 'documento_numero']
-    filterset_fields = ['company', 'documento_tipo']
-    ordering_fields = ['created_at', 'años_experiencia']
-    ordering = ['-created_at']
+    search_fields = ['usuario__correo', 'usuario__nombres', 'usuario__apellidos', 'cargo', 'especialidad']
+    filterset_fields = ['empresa', 'cargo']
+    ordering_fields = ['fecha_creacion', 'años_experiencia']
+    ordering = ['-fecha_creacion']
     
     def get_serializer_class(self):
         """Retorna el serializer apropiado según la acción."""
@@ -799,16 +813,16 @@ class SupervisorViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filtrar supervisores según el rol."""
         user = self.request.user
-        queryset = Supervisor.objects.select_related('user', 'company').all()
+        queryset = Supervisor.objects.select_related('usuario', 'empresa').all()
         
         # Supervisor solo ve su propio perfil
         if user.is_supervisor:
-            return queryset.filter(user=user)
+            return queryset.filter(usuario=user)
         
         # Practicantes ven supervisores de sus prácticas
         if user.is_practicante:
             try:
-                student = Student.objects.get(user=user)
+                student = Student.objects.get(usuario=user)
                 supervisor_ids = Practice.objects.filter(
                     student=student
                 ).values_list('supervisor_id', flat=True)
@@ -863,16 +877,16 @@ class PracticeViewSet(viewsets.ModelViewSet):
     """
     
     queryset = Practice.objects.select_related(
-        'student', 'student__user', 'company', 'supervisor', 'supervisor__user'
+        'practicante', 'practicante__usuario', 'empresa', 'supervisor', 'supervisor__usuario'
     ).all()
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     search_fields = [
-        'titulo', 'area_practica', 'student__codigo_estudiante',
-        'company__razon_social', 'company__ruc'
+        'titulo', 'descripcion', 'practicante__codigo',
+        'empresa__razon_social', 'empresa__ruc'
     ]
-    filterset_fields = ['status', 'modalidad', 'company', 'student']
-    ordering_fields = ['created_at', 'fecha_inicio', 'fecha_fin']
-    ordering = ['-created_at']
+    filterset_fields = ['estado', 'modalidad', 'empresa', 'practicante']
+    ordering_fields = ['fecha_creacion', 'fecha_inicio', 'fecha_fin']
+    ordering = ['-fecha_creacion']
     
     def get_serializer_class(self):
         """Retorna el serializer apropiado según la acción."""
@@ -956,7 +970,7 @@ class PracticeViewSet(viewsets.ModelViewSet):
         observaciones = serializer.validated_data.get('observaciones', '')
         calificacion = serializer.validated_data.get('calificacion_final')
         
-        practice.status = nuevo_estado
+        practice.estado = nuevo_estado
         if observaciones:
             practice.observaciones = observaciones
         if calificacion is not None:
@@ -965,7 +979,7 @@ class PracticeViewSet(viewsets.ModelViewSet):
         
         # Crear notificación al estudiante
         Notification.objects.create(
-            user=practice.student.user,
+            user=practice.practicante.usuario,
             tipo='INFO',
             titulo=f'Estado de práctica actualizado',
             mensaje=f'Tu práctica "{practice.titulo}" cambió a estado {nuevo_estado}',
@@ -989,31 +1003,33 @@ class PracticeViewSet(viewsets.ModelViewSet):
         practice = self.get_object()
         
         # Validar que sea el estudiante dueño
-        if not hasattr(request.user, 'student_profile') or practice.student != request.user.student_profile:
+        if not hasattr(request.user, 'student_profile') or practice.practicante != request.user.student_profile:
             return Response(
                 {'error': 'Solo el estudiante puede enviar su práctica'},
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        if practice.status != 'DRAFT':
+        if practice.estado != 'DRAFT':
             return Response(
-                {'error': f'Solo se pueden enviar prácticas en estado DRAFT. Estado actual: {practice.status}'},
+                {'error': f'Solo se pueden enviar prácticas en estado DRAFT. Estado actual: {practice.estado}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        practice.status = 'PENDING'
+        practice.estado = 'PENDING'
         practice.save()
         
         # Notificar a coordinadores
-        coordinadores = User.objects.filter(role='COORDINADOR', is_active=True)
-        for coord in coordinadores:
-            Notification.objects.create(
-                user=coord,
-                tipo='INFO',
-                titulo='Nueva práctica pendiente de aprobación',
-                mensaje=f'El estudiante {practice.student.user.get_full_name()} envió una práctica para aprobación',
-                related_practice=practice
-            )
+        rol_coordinador = Role.objects.filter(nombre='COORDINADOR').first()
+        if rol_coordinador:
+            coordinadores = User.objects.filter(rol_id=rol_coordinador.id, activo=True)
+            for coord in coordinadores:
+                Notification.objects.create(
+                    user=coord,
+                    tipo='INFO',
+                    titulo='Nueva práctica pendiente de aprobación',
+                    mensaje=f'El estudiante {practice.practicante.usuario.get_full_name()} envió una práctica para aprobación',
+                    related_practice=practice
+                )
         
         return Response(
             {'message': 'Práctica enviada a aprobación', 'practice': PracticeDetailSerializer(practice).data},
@@ -1028,18 +1044,18 @@ class PracticeViewSet(viewsets.ModelViewSet):
         """
         practice = self.get_object()
         
-        if practice.status != 'PENDING':
+        if practice.estado != 'PENDING':
             return Response(
-                {'error': f'Solo se pueden aprobar prácticas en estado PENDING. Estado actual: {practice.status}'},
+                {'error': f'Solo se pueden aprobar prácticas en estado PENDING. Estado actual: {practice.estado}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        practice.status = 'APPROVED'
+        practice.estado = 'APPROVED'
         practice.save()
         
         # Notificar al estudiante
         Notification.objects.create(
-            user=practice.student.user,
+            user=practice.practicante.usuario,
             tipo='SUCCESS',
             titulo='Práctica aprobada',
             mensaje=f'Tu práctica "{practice.titulo}" ha sido aprobada. Puedes iniciarla cuando estés listo.',
@@ -1071,19 +1087,19 @@ class PracticeViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        if practice.status != 'PENDING':
+        if practice.estado != 'PENDING':
             return Response(
-                {'error': f'Solo se pueden rechazar prácticas en estado PENDING. Estado actual: {practice.status}'},
+                {'error': f'Solo se pueden rechazar prácticas en estado PENDING. Estado actual: {practice.estado}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        practice.status = 'CANCELLED'
+        practice.estado = 'CANCELLED'
         practice.observaciones = observaciones
         practice.save()
         
         # Notificar al estudiante
         Notification.objects.create(
-            user=practice.student.user,
+            user=practice.practicante.usuario,
             tipo='WARNING',
             titulo='Práctica rechazada',
             mensaje=f'Tu práctica "{practice.titulo}" fue rechazada. Motivo: {observaciones}',
@@ -1104,28 +1120,28 @@ class PracticeViewSet(viewsets.ModelViewSet):
         practice = self.get_object()
         
         # Validar que sea el estudiante
-        if not hasattr(request.user, 'student_profile') or practice.student != request.user.student_profile:
+        if not hasattr(request.user, 'student_profile') or practice.practicante != request.user.student_profile:
             return Response(
                 {'error': 'Solo el estudiante puede iniciar su práctica'},
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        if practice.status != 'APPROVED':
+        if practice.estado != 'APPROVED':
             return Response(
-                {'error': f'Solo se pueden iniciar prácticas APPROVED. Estado actual: {practice.status}'},
+                {'error': f'Solo se pueden iniciar prácticas APPROVED. Estado actual: {practice.estado}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        practice.status = 'IN_PROGRESS'
+        practice.estado = 'IN_PROGRESS'
         practice.save()
         
         # Notificar a supervisor y coordinadores
         if practice.supervisor:
             Notification.objects.create(
-                user=practice.supervisor.user,
+                user=practice.supervisor.usuario,
                 tipo='INFO',
                 titulo='Práctica iniciada',
-                mensaje=f'El estudiante {practice.student.user.get_full_name()} inició su práctica',
+                mensaje=f'El estudiante {practice.practicante.usuario.get_full_name()} inició su práctica',
                 related_practice=practice
             )
         
@@ -1165,20 +1181,20 @@ class PracticeViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        if practice.status != 'IN_PROGRESS':
+        if practice.estado != 'IN_PROGRESS':
             return Response(
-                {'error': f'Solo se pueden completar prácticas IN_PROGRESS. Estado actual: {practice.status}'},
+                {'error': f'Solo se pueden completar prácticas IN_PROGRESS. Estado actual: {practice.estado}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        practice.status = 'COMPLETED'
+        practice.estado = 'COMPLETED'
         practice.calificacion_final = calificacion
         practice.observaciones = request.data.get('observaciones', '')
         practice.save()
         
         # Notificar al estudiante
         Notification.objects.create(
-            user=practice.student.user,
+            user=practice.practicante.usuario,
             tipo='SUCCESS',
             titulo='Práctica completada',
             mensaje=f'Tu práctica "{practice.titulo}" ha sido completada con calificación {calificacion}',
@@ -1382,12 +1398,12 @@ class DocumentViewSet(viewsets.ModelViewSet):
         
         # Notificar al estudiante
         Notification.objects.create(
-            user=document.practice.student.user,
+            user=document.practica.practicante.usuario,
             tipo='SUCCESS',
             titulo='Documento aprobado',
             mensaje=f'Tu documento "{document.nombre_archivo}" ha sido aprobado',
             related_document=document,
-            related_practice=document.practice
+            related_practice=document.practica
         )
         
         return Response(
@@ -1421,12 +1437,12 @@ class DocumentViewSet(viewsets.ModelViewSet):
         
         # Notificar al estudiante
         Notification.objects.create(
-            user=document.practice.student.user,
+            user=document.practica.practicante.usuario,
             tipo='WARNING',
             titulo='Documento rechazado',
             mensaje=f'Tu documento "{document.nombre_archivo}" fue rechazado. Motivo: {observaciones}',
             related_document=document,
-            related_practice=document.practice
+            related_practice=document.practica
         )
         
         return Response(
@@ -1594,6 +1610,374 @@ class NotificationViewSet(viewsets.ModelViewSet):
         count = self.get_queryset().filter(leido=False).count()
         
         return Response({'unread_count': count}, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# VIEWSET DE ESCUELAS PROFESIONALES
+# ============================================================================
+
+class SchoolViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestión de escuelas profesionales.
+    
+    Endpoints:
+    - GET /api/schools/ - Listar todas las escuelas
+    - GET /api/schools/{id}/ - Detalle de una escuela
+    - POST /api/schools/ - Crear nueva escuela
+    - PUT/PATCH /api/schools/{id}/ - Actualizar escuela
+    - DELETE /api/schools/{id}/ - Eliminar escuela
+    - GET /api/schools/{id}/estudiantes/ - Estudiantes de la escuela
+    - GET /api/schools/{id}/ramas/ - Ramas de la escuela
+    - GET /api/schools/{id}/statistics/ - Estadísticas de la escuela
+    """
+    queryset = School.objects.all()
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    search_fields = ['codigo', 'nombre', 'descripcion']
+    ordering_fields = ['codigo', 'nombre', 'fecha_creacion']
+    ordering = ['codigo']
+    
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return SchoolListSerializer
+        elif self.action == 'create':
+            return SchoolCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return SchoolUpdateSerializer
+        return SchoolDetailSerializer
+    
+    def get_permissions(self):
+        """Define permisos según la acción."""
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAuthenticated(), IsAdminOrCoordinador()]
+        return [IsAuthenticated()]
+    
+    @action(detail=True, methods=['get'])
+    def estudiantes(self, request, pk=None):
+        """
+        GET /api/schools/{id}/estudiantes/
+        Lista estudiantes de la escuela.
+        """
+        school = self.get_object()
+        students = Student.objects.filter(escuela=school).select_related('usuario', 'rama').filter(
+            usuario__activo=True
+        )
+        
+        page = self.paginate_queryset(students)
+        if page is not None:
+            serializer = StudentListSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = StudentListSerializer(students, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def ramas(self, request, pk=None):
+        """
+        GET /api/schools/{id}/ramas/
+        Lista ramas/especialidades de la escuela.
+        """
+        school = self.get_object()
+        branches = school.branches.filter(activa=True)
+        
+        serializer = BranchListSerializer(branches, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def statistics(self, request, pk=None):
+        """
+        GET /api/schools/{id}/statistics/
+        Estadísticas de la escuela.
+        """
+        school = self.get_object()
+        
+        total_estudiantes = school.students.count()
+        estudiantes_activos = school.students.filter(
+            usuario__activo=True,
+            estado_academico='REGULAR'
+        ).count()
+        total_ramas = school.branches.filter(activa=True).count()
+        
+        # Estudiantes por rama
+        estudiantes_por_rama = {}
+        for branch in school.branches.filter(activa=True):
+            estudiantes_por_rama[branch.nombre] = branch.students.count()
+        
+        stats = {
+            'total_estudiantes': total_estudiantes,
+            'estudiantes_activos': estudiantes_activos,
+            'total_ramas': total_ramas,
+            'estudiantes_por_rama': estudiantes_por_rama,
+            'promedio_estudiantes_por_rama': total_estudiantes / total_ramas if total_ramas > 0 else 0
+        }
+        
+        return Response(stats, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# VIEWSET DE RAMAS/ESPECIALIDADES
+# ============================================================================
+
+class BranchViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestión de ramas/especialidades.
+    
+    Endpoints:
+    - GET /api/branches/ - Listar todas las ramas
+    - GET /api/branches/{id}/ - Detalle de una rama
+    - POST /api/branches/ - Crear nueva rama
+    - PUT/PATCH /api/branches/{id}/ - Actualizar rama
+    - DELETE /api/branches/{id}/ - Eliminar rama
+    - GET /api/branches/{id}/estudiantes/ - Estudiantes de la rama
+    """
+    queryset = Branch.objects.all().select_related('escuela')
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['escuela', 'activa']
+    search_fields = ['nombre', 'escuela__nombre']
+    ordering_fields = ['nombre', 'fecha_creacion']
+    ordering = ['escuela__nombre', 'nombre']
+    
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return BranchListSerializer
+        elif self.action == 'create':
+            return BranchCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return BranchUpdateSerializer
+        return BranchDetailSerializer
+    
+    def get_permissions(self):
+        """Define permisos según la acción."""
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAuthenticated(), IsAdminOrCoordinador()]
+        return [IsAuthenticated()]
+    
+    @action(detail=True, methods=['get'])
+    def estudiantes(self, request, pk=None):
+        """
+        GET /api/branches/{id}/estudiantes/
+        Lista estudiantes de la rama.
+        """
+        branch = self.get_object()
+        students = Student.objects.filter(rama=branch).select_related('usuario', 'escuela').filter(
+            usuario__activo=True
+        )
+        
+        page = self.paginate_queryset(students)
+        if page is not None:
+            serializer = StudentListSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = StudentListSerializer(students, many=True)
+        return Response(serializer.data)
+
+
+# ============================================================================
+# VIEWSET DE EVALUACIONES DE PRÁCTICAS
+# ============================================================================
+
+class PracticeEvaluationViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestión de evaluaciones de prácticas.
+    
+    Endpoints:
+    - GET /api/evaluations/ - Listar todas las evaluaciones
+    - GET /api/evaluations/{id}/ - Detalle de una evaluación
+    - POST /api/evaluations/ - Crear nueva evaluación
+    - PUT/PATCH /api/evaluations/{id}/ - Actualizar evaluación
+    - DELETE /api/evaluations/{id}/ - Eliminar evaluación
+    - POST /api/evaluations/{id}/approve/ - Aprobar evaluación
+    - POST /api/evaluations/{id}/reject/ - Rechazar evaluación
+    - GET /api/evaluations/my_evaluations/ - Evaluaciones del usuario actual
+    """
+    queryset = PracticeEvaluation.objects.all().select_related(
+        'practica', 'practica__practicante', 'practica__practicante__usuario',
+        'practica__empresa', 'evaluador'
+    )
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['practica', 'evaluador', 'tipo_evaluador', 'periodo_evaluacion']
+    search_fields = ['practica__titulo', 'practica__practicante__usuario__nombres', 'practica__practicante__usuario__apellidos']
+    ordering_fields = ['fecha_evaluacion', 'puntaje_total']
+    ordering = ['-fecha_evaluacion']
+    
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return PracticeEvaluationListSerializer
+        elif self.action == 'create':
+            return PracticeEvaluationCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return PracticeEvaluationUpdateSerializer
+        elif self.action in ['approve', 'reject']:
+            return PracticeEvaluationApproveSerializer
+        return PracticeEvaluationDetailSerializer
+    
+    def get_queryset(self):
+        """Filtra evaluaciones según el rol del usuario."""
+        queryset = super().get_queryset()
+        user = self.request.user
+        
+        # Practicante: solo sus evaluaciones
+        if user.role == 'PRACTICANTE':
+            return queryset.filter(practice__student__user=user)
+        
+        # Supervisor: solo evaluaciones que él ha creado
+        elif user.role == 'SUPERVISOR':
+            return queryset.filter(evaluator=user)
+        
+        # Coordinador y Secretaria: todas las evaluaciones
+        elif user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
+            return queryset
+        
+        return queryset.none()
+    
+    def perform_create(self, serializer):
+        """Asigna el evaluador al crear."""
+        serializer.save(evaluator=self.request.user)
+    
+    @action(detail=False, methods=['get'])
+    def my_evaluations(self, request):
+        """
+        GET /api/evaluations/my_evaluations/
+        Evaluaciones del usuario actual.
+        """
+        user = request.user
+        
+        if user.role == 'PRACTICANTE':
+            queryset = self.get_queryset().filter(practice__student__user=user)
+        elif user.role == 'SUPERVISOR':
+            queryset = self.get_queryset().filter(evaluator=user)
+        else:
+            return Response(
+                {'error': 'Acción no permitida para este rol'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = PracticeEvaluationListSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = PracticeEvaluationListSerializer(queryset, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsAdminOrCoordinador])
+    def approve(self, request, pk=None):
+        """
+        POST /api/evaluations/{id}/approve/
+        Aprobar evaluación.
+        """
+        evaluation = self.get_object()
+        
+        if evaluation.status == 'APPROVED':
+            return Response(
+                {'error': 'La evaluación ya está aprobada'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        evaluation.approve(request.user)
+        
+        serializer = PracticeEvaluationDetailSerializer(evaluation)
+        return Response(
+            {
+                'message': 'Evaluación aprobada exitosamente',
+                'evaluation': serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsAdminOrCoordinador])
+    def reject(self, request, pk=None):
+        """
+        POST /api/evaluations/{id}/reject/
+        Rechazar evaluación.
+        """
+        evaluation = self.get_object()
+        observaciones = request.data.get('observaciones', '')
+        
+        if evaluation.status == 'REJECTED':
+            return Response(
+                {'error': 'La evaluación ya está rechazada'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        evaluation.status = 'REJECTED'
+        evaluation.observaciones = observaciones
+        evaluation.save()
+        
+        serializer = PracticeEvaluationDetailSerializer(evaluation)
+        return Response(
+            {
+                'message': 'Evaluación rechazada',
+                'evaluation': serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================================
+# VIEWSET DE HISTORIAL DE ESTADOS
+# ============================================================================
+
+class PracticeStatusHistoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet de solo lectura para historial de estados de prácticas.
+    
+    Endpoints:
+    - GET /api/practice-status-history/ - Listar todo el historial
+    - GET /api/practice-status-history/{id}/ - Detalle de un cambio
+    - GET /api/practice-status-history/by_practice/{practice_id}/ - Historial por práctica
+    """
+    queryset = PracticeStatusHistory.objects.all().select_related(
+        'practice', 'practice__student', 'practice__student__user',
+        'usuario_responsable'
+    )
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
+    filterset_fields = ['practice', 'estado_anterior', 'estado_nuevo', 'usuario_responsable']
+    ordering_fields = ['fecha_cambio']
+    ordering = ['-fecha_cambio']
+    
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return PracticeStatusHistoryListSerializer
+        return PracticeStatusHistoryDetailSerializer
+    
+    def get_queryset(self):
+        """Filtra historial según el rol del usuario."""
+        queryset = super().get_queryset()
+        user = self.request.user
+        
+        # Practicante: solo historial de sus prácticas
+        if user.role == 'PRACTICANTE':
+            return queryset.filter(practice__student__user=user)
+        
+        # Supervisor: historial de prácticas donde es supervisor
+        elif user.role == 'SUPERVISOR':
+            return queryset.filter(practice__supervisor__user=user)
+        
+        # Coordinador, Secretaria, Admin: todo el historial
+        elif user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
+            return queryset
+        
+        return queryset.none()
+    
+    @action(detail=False, methods=['get'], url_path='by_practice/(?P<practice_id>[^/.]+)')
+    def by_practice(self, request, practice_id=None):
+        """
+        GET /api/practice-status-history/by_practice/{practice_id}/
+        Historial de cambios de una práctica específica.
+        """
+        queryset = self.get_queryset().filter(practice_id=practice_id)
+        
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = PracticeStatusHistoryListSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = PracticeStatusHistoryListSerializer(queryset, many=True)
+        return Response(serializer.data)
 
 
 # ============================================================================

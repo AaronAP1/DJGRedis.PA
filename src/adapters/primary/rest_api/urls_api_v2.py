@@ -18,7 +18,11 @@ from src.adapters.primary.rest_api.viewsets import (
     SupervisorViewSet,
     PracticeViewSet,
     DocumentViewSet,
-    NotificationViewSet
+    NotificationViewSet,
+    SchoolViewSet,
+    BranchViewSet,
+    PracticeEvaluationViewSet,
+    PracticeStatusHistoryViewSet
 )
 
 # Avatar ViewSet
@@ -54,6 +58,12 @@ router.register(r'practices', PracticeViewSet, basename='practice')
 router.register(r'documents', DocumentViewSet, basename='document')
 router.register(r'notifications', NotificationViewSet, basename='notification')
 
+# Registrar ViewSets académicos (Nuevos modelos)
+router.register(r'schools', SchoolViewSet, basename='school')
+router.register(r'branches', BranchViewSet, basename='branch')
+router.register(r'evaluations', PracticeEvaluationViewSet, basename='evaluation')
+router.register(r'practice-status-history', PracticeStatusHistoryViewSet, basename='practice-status-history')
+
 # Registrar ViewSets de Dashboard y Reportes (Fase 7)
 router.register(r'dashboards', DashboardViewSet, basename='dashboard')
 router.register(r'reports', ReportsViewSet, basename='report')
@@ -87,6 +97,10 @@ def api_root(request, format=None):
             'practices': request.build_absolute_uri('practices/'),
             'documents': request.build_absolute_uri('documents/'),
             'notifications': request.build_absolute_uri('notifications/'),
+            'schools': request.build_absolute_uri('schools/'),
+            'branches': request.build_absolute_uri('branches/'),
+            'evaluations': request.build_absolute_uri('evaluations/'),
+            'practice_status_history': request.build_absolute_uri('practice-status-history/'),
             'dashboards': request.build_absolute_uri('dashboards/'),
             'reports': request.build_absolute_uri('reports/'),
         },

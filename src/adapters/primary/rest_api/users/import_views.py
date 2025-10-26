@@ -13,7 +13,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParamet
 
 from openpyxl import Workbook, load_workbook
 
-from src.adapters.secondary.database.models import User, Student
+from src.adapters.secondary.database.models import User, StudentProfile
 from src.infrastructure.security.permissions import IsAdminOnly
 from .serializers import (
     ImportPreviewRowSerializer,
@@ -193,9 +193,11 @@ class ImportConfirmView(APIView):
                 )
                 created_count += 1
 
-                Student.objects.create(
-                    user=user,
-                    codigo_estudiante=codigo,
+                # Crear perfil de estudiante
+                StudentProfile.objects.create(
+                    usuario=user,
+                    codigo=codigo,
+                    # TODO: Agregar otros campos requeridos según necesidad
                 )
 
                 # Enviar email de bienvenida (COMENTADO - servidor de correo no configurado)

@@ -13,7 +13,7 @@ import random
 from src.adapters.secondary.database.models import (
     Role, Permission, RolePermission, 
     Student, Company, Supervisor, Practice,
-    Document
+    Document, School, Branch, PracticeEvaluation, PracticeStatusHistory
 )
 from src.domain.enums import (
     UserRole, CompanyStatus, PracticeStatus,
@@ -47,6 +47,12 @@ class Command(BaseCommand):
         # 2. Crear usuarios (PostgreSQL + Redis para cache)
         users = self.create_users()
         
+        # 2.1 Crear escuelas profesionales (PostgreSQL)
+        schools = self.create_schools(users)
+        
+        # 2.2 Crear ramas/especialidades (PostgreSQL)
+        branches = self.create_branches(schools)
+        
         # 3. Crear empresas (PostgreSQL)
         companies = self.create_companies()
         
@@ -54,10 +60,10 @@ class Command(BaseCommand):
         supervisors = self.create_supervisors(users, companies)
         
         # 5. Crear estudiantes (PostgreSQL)
-        students = self.create_students(users)
+        students = self.create_students(users, schools, branches)
         
         # 6. Crear prácticas (PostgreSQL)
-        practices = self.create_practices(students, companies, supervisors)
+        practices = self.create_practices(students, companies, supervisors, users)
         
         # 7. Crear documentos (PostgreSQL + MongoDB simulado)
         self.create_documents(practices)
@@ -76,12 +82,15 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING('\n🗑️  Limpiando datos existentes...\n'))
         
         with transaction.atomic():
+            PracticeStatusHistory.objects.all().delete()
             PracticeEvaluation.objects.all().delete()
             Document.objects.all().delete()
             Practice.objects.all().delete()
             Student.objects.all().delete()
             Supervisor.objects.all().delete()
             Company.objects.all().delete()
+            Branch.objects.all().delete()
+            School.objects.all().delete()
             RolePermission.objects.all().delete()
             User.objects.filter(is_superuser=False).delete()
             
@@ -180,6 +189,98 @@ class Command(BaseCommand):
         self.stdout.write(f'  🔑 Password para todos: Test1234\n')
         
         return users
+
+    def create_schools(self, users):
+        """Crea escuelas profesionales."""
+        self.stdout.write(self.style.SUCCESS('🎓 PASO 2.1: Creando Escuelas Profesionales (PostgreSQL)\n'))
+        
+        # Obtener coordinador
+        coordinador = None
+        for user in users.values():
+            if hasattr(user, 'role') and user.role == 'COORDINADOR':
+                coordinador = user
+                break
+        
+        schools_data = [
+            {
+                'codigo': 'EP-IS',
+                'nombre': 'Ingeniería de Sistemas',
+                'facultad': 'Facultad de Ingeniería y Arquitectura',
+                'activa': True
+            },
+            {
+                'codigo': 'EP-CC',
+                'nombre': 'Ciencias de la Computación',
+                'facultad': 'Facultad de Ingeniería y Arquitectura',
+                'activa': True
+            },
+            {
+                'codigo': 'EP-SW',
+                'nombre': 'Ingeniería de Software',
+                'facultad': 'Facultad de Ingeniería y Arquitectura',
+                'activa': True
+            }
+        ]
+        
+        schools = []
+        created_count = 0
+        
+        with transaction.atomic():
+            for school_data in schools_data:
+                school, created = School.objects.get_or_create(
+                    codigo=school_data['codigo'],
+                    defaults={
+                        'nombre': school_data['nombre'],
+                        'facultad': school_data['facultad'],
+                        'coordinador': coordinador,
+                        'activa': school_data['activa']
+                    }
+                )
+                if created:
+                    created_count += 1
+                schools.append(school)
+        
+        self.stdout.write(f'  ✅ {created_count} escuelas profesionales creadas\n')
+        return schools
+
+    def create_branches(self, schools):
+        """Crea ramas/especialidades de las escuelas."""
+        self.stdout.write(self.style.SUCCESS('🌿 PASO 2.2: Creando Ramas/Especialidades (PostgreSQL)\n'))
+        
+        branches_data = [
+            # Ingeniería de Sistemas
+            {'school_index': 0, 'nombre': 'Desarrollo de Software', 'activa': True},
+            {'school_index': 0, 'nombre': 'Redes y Comunicaciones', 'activa': True},
+            {'school_index': 0, 'nombre': 'Sistemas de Información', 'activa': True},
+            
+            # Ciencias de la Computación
+            {'school_index': 1, 'nombre': 'Inteligencia Artificial', 'activa': True},
+            {'school_index': 1, 'nombre': 'Ciencia de Datos', 'activa': True},
+            
+            # Ingeniería de Software
+            {'school_index': 2, 'nombre': 'Desarrollo Web', 'activa': True},
+            {'school_index': 2, 'nombre': 'Desarrollo Móvil', 'activa': True},
+        ]
+        
+        branches = []
+        created_count = 0
+        
+        with transaction.atomic():
+            for branch_data in branches_data:
+                school = schools[branch_data['school_index']]
+                branch, created = Branch.objects.get_or_create(
+                    school=school,
+                    nombre=branch_data['nombre'],
+                    defaults={
+                        'activa': branch_data['activa']
+                    }
+                )
+                if created:
+                    created_count += 1
+                branches.append(branch)
+        
+        self.stdout.write(f'  ✅ {created_count} ramas/especialidades creadas\n')
+        return branches
 
     def create_companies(self):
         """Crea empresas de prueba."""
@@ -289,7 +390,7 @@ class Command(BaseCommand):
         self.stdout.write(f'  ✅ {created_count} supervisores creados\n')
         return supervisors
 
-    def create_students(self, users):
+    def create_students(self, users, schools, branches):
         """Crea estudiantes de prueba."""
         self.stdout.write(self.style.SUCCESS('🎓 PASO 5: Creando Estudiantes (PostgreSQL)\n'))
         
@@ -302,7 +403,10 @@ class Command(BaseCommand):
                 'telefono': '987111222',
                 'carrera': 'INGENIERIA_SISTEMAS',
                 'semestre_actual': 8,
-                'promedio': 15.5
+                'promedio': 15.5,
+                'school_index': 0,  # Ingeniería de Sistemas
+                'branch_index': 0,  # Desarrollo de Software
+                'estado_academico': 'REGULAR'
             },
             {
                 'user_email': 'estudiante2@upeu.edu.pe',
@@ -312,7 +416,10 @@ class Command(BaseCommand):
                 'telefono': '987333444',
                 'carrera': 'INGENIERIA_SISTEMAS',
                 'semestre_actual': 9,
-                'promedio': 16.2
+                'promedio': 16.2,
+                'school_index': 0,  # Ingeniería de Sistemas
+                'branch_index': 1,  # Redes y Comunicaciones
+                'estado_academico': 'REGULAR'
             },
             {
                 'user_email': 'estudiante3@upeu.edu.pe',
@@ -322,7 +429,10 @@ class Command(BaseCommand):
                 'telefono': '987555666',
                 'carrera': 'INGENIERIA_SISTEMAS',
                 'semestre_actual': 10,
-                'promedio': 14.8
+                'promedio': 14.8,
+                'school_index': 1,  # Ciencias de la Computación
+                'branch_index': 3,  # Inteligencia Artificial
+                'estado_academico': 'REGULAR'
             }
         ]
         
@@ -332,6 +442,8 @@ class Command(BaseCommand):
         with transaction.atomic():
             for student_data in students_data:
                 user = User.objects.get(email=student_data['user_email'])
+                school = schools[student_data['school_index']]
+                branch = branches[student_data['branch_index']]
                 
                 student, created = Student.objects.get_or_create(
                     user=user,
@@ -342,7 +454,10 @@ class Command(BaseCommand):
                         'telefono': student_data['telefono'],
                         'carrera': student_data['carrera'],
                         'semestre_actual': student_data['semestre_actual'],
-                        'promedio': student_data['promedio']
+                        'promedio': student_data['promedio'],
+                        'school': school,
+                        'branch': branch,
+                        'estado_academico': student_data.get('estado_academico', 'REGULAR')
                     }
                 )
                 if created:
@@ -352,9 +467,18 @@ class Command(BaseCommand):
         self.stdout.write(f'  ✅ {created_count} estudiantes creados\n')
         return students
 
-    def create_practices(self, students, companies, supervisors):
+    def create_practices(self, students, companies, supervisors, users):
         """Crea prácticas de prueba."""
         self.stdout.write(self.style.SUCCESS('📝 PASO 6: Creando Prácticas (PostgreSQL)\n'))
+        
+        # Obtener coordinador y secretaria
+        coordinador = None
+        secretaria = None
+        for user in users.values():
+            if hasattr(user, 'role') and user.role == 'COORDINADOR':
+                coordinador = user
+            elif hasattr(user, 'role') and user.role == 'SECRETARIA':
+                secretaria = user
         
         practices_data = [
             {
@@ -366,7 +490,9 @@ class Command(BaseCommand):
                 'horas_requeridas': 480,
                 'status': PracticeStatus.IN_PROGRESS.value,
                 'fecha_inicio': datetime.now() - timedelta(days=30),
-                'fecha_fin': datetime.now() + timedelta(days=60)
+                'fecha_fin': datetime.now() + timedelta(days=60),
+                'remunerada': True,
+                'monto_remuneracion': 1000.00
             },
             {
                 'student_index': 1,
@@ -377,7 +503,9 @@ class Command(BaseCommand):
                 'horas_requeridas': 480,
                 'status': PracticeStatus.APPROVED.value,
                 'fecha_inicio': datetime.now() + timedelta(days=7),
-                'fecha_fin': datetime.now() + timedelta(days=97)
+                'fecha_fin': datetime.now() + timedelta(days=97),
+                'remunerada': False,
+                'monto_remuneracion': None
             },
             {
                 'student_index': 2,
@@ -388,7 +516,9 @@ class Command(BaseCommand):
                 'horas_requeridas': 480,
                 'status': PracticeStatus.PENDING.value,
                 'fecha_inicio': None,
-                'fecha_fin': None
+                'fecha_fin': None,
+                'remunerada': True,
+                'monto_remuneracion': 800.00
             }
         ]
         
@@ -407,9 +537,13 @@ class Command(BaseCommand):
                     defaults={
                         'company': company,
                         'supervisor': supervisor,
+                        'coordinador': coordinador,
+                        'secretaria': secretaria,
                         'descripcion': practice_data['descripcion'],
                         'horas_requeridas': practice_data['horas_requeridas'],
                         'horas_completadas': random.randint(0, 200) if practice_data['status'] == PracticeStatus.IN_PROGRESS.value else 0,
+                        'remunerada': practice_data.get('remunerada', False),
+                        'monto_remuneracion': practice_data.get('monto_remuneracion'),
                         'status': practice_data['status'],
                         'fecha_inicio': practice_data['fecha_inicio'],
                         'fecha_fin': practice_data['fecha_fin']
@@ -482,9 +616,24 @@ class Command(BaseCommand):
             {
                 'practice_index': 0,
                 'supervisor_index': 0,
-                'calificacion': 18.0,
-                'comentarios': 'Excelente desempeño, muy proactivo',
-                'status': EvaluationStatus.APPROVED.value
+                'tipo_evaluador': 'SUPERVISOR',
+                'periodo_evaluacion': 'MENSUAL_1',
+                'puntaje_total': 85.0,
+                'comentarios': 'Excelente desempeño, muy proactivo y responsable',
+                'recomendaciones': 'Continuar con el mismo nivel de dedicación',
+                'fortalezas': 'Buena capacidad de aprendizaje, trabajo en equipo',
+                'areas_mejora': 'Mejorar gestión del tiempo'
+            },
+            {
+                'practice_index': 0,
+                'supervisor_index': 0,
+                'tipo_evaluador': 'SUPERVISOR',
+                'periodo_evaluacion': 'FINAL',
+                'puntaje_total': 90.0,
+                'comentarios': 'Cumplió con todos los objetivos planteados',
+                'recomendaciones': 'Apto para continuar en el área',
+                'fortalezas': 'Dominio técnico, iniciativa propia',
+                'areas_mejora': 'Ninguna observación'
             }
         ]
         
@@ -497,11 +646,16 @@ class Command(BaseCommand):
                 
                 evaluation, created = PracticeEvaluation.objects.get_or_create(
                     practice=practice,
+                    periodo_evaluacion=eval_data['periodo_evaluacion'],
+                    tipo_evaluador=eval_data['tipo_evaluador'],
                     defaults={
                         'evaluator': supervisor.user,
-                        'calificacion': eval_data['calificacion'],
+                        'puntaje_total': eval_data['puntaje_total'],
                         'comentarios': eval_data['comentarios'],
-                        'status': eval_data['status']
+                        'recomendaciones': eval_data.get('recomendaciones', ''),
+                        'fortalezas': eval_data.get('fortalezas', ''),
+                        'areas_mejora': eval_data.get('areas_mejora', ''),
+                        'status': 'APPROVED'
                     }
                 )
                 if created:
@@ -542,12 +696,15 @@ class Command(BaseCommand):
             'Usuarios': User.objects.count(),
             'Roles': Role.objects.count(),
             'Permisos': Permission.objects.count(),
+            'Escuelas': School.objects.count(),
+            'Ramas': Branch.objects.count(),
             'Estudiantes': Student.objects.count(),
             'Empresas': Company.objects.count(),
             'Supervisores': Supervisor.objects.count(),
             'Prácticas': Practice.objects.count(),
             'Documentos': Document.objects.count(),
-            'Evaluaciones': PracticeEvaluation.objects.count()
+            'Evaluaciones': PracticeEvaluation.objects.count(),
+            'Historial Estados': PracticeStatusHistory.objects.count()
         }
         
         for key, value in stats.items():

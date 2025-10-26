@@ -19,10 +19,12 @@ from datetime import datetime, timedelta
 
 from .types import (
     UserType, StudentType, CompanyType, SupervisorType,
-    PracticeType, DocumentType, NotificationType
+    PracticeType, DocumentType, NotificationType,
+    SchoolType, BranchType, PracticeEvaluationType, PracticeStatusHistoryType
 )
 from src.adapters.secondary.database.models import (
-    Student, Company, Supervisor, Practice, Document, Notification
+    Student, Company, Supervisor, Practice, Document, Notification,
+    School, Branch, PracticeEvaluation, PracticeStatusHistory
 )
 from src.infrastructure.security.permission_helpers import (
     can_view_users, can_view_students, can_view_companies,
@@ -1336,3 +1338,266 @@ class Query(graphene.ObjectType):
         stats['by_sector'] = by_sector
         
         return CompanyStatisticsType(**stats)
+
+    # ========================================================================
+    # SCHOOL QUERIES (NUEVAS)
+    # ========================================================================
+    
+    school = graphene.Field(
+        SchoolType,
+        id=graphene.ID(),
+        codigo=graphene.String(),
+        description="Buscar escuela profesional por ID o código"
+    )
+    
+    schools = graphene.List(
+        SchoolType,
+        activa=graphene.Boolean(),
+        search=graphene.String(),
+        description="Lista de escuelas profesionales"
+    )
+    
+    @login_required
+    def resolve_school(self, info, id=None, codigo=None):
+        """Resolver: Buscar escuela por ID o código."""
+        if id:
+            return School.objects.get(pk=id)
+        elif codigo:
+            return School.objects.get(codigo=codigo)
+        return None
+    
+    @login_required
+    def resolve_schools(self, info, activa=None, search=None):
+        """Resolver: Lista de escuelas profesionales."""
+        queryset = School.objects.select_related('coordinador').all()
+        
+        if activa is not None:
+            queryset = queryset.filter(activa=activa)
+        
+        if search:
+            queryset = queryset.filter(
+                Q(codigo__icontains=search) |
+                Q(nombre__icontains=search) |
+                Q(facultad__icontains=search)
+            )
+        
+        return queryset.order_by('codigo')
+    
+    # ========================================================================
+    # BRANCH QUERIES (NUEVAS)
+    # ========================================================================
+    
+    branch = graphene.Field(
+        BranchType,
+        id=graphene.ID(required=True),
+        description="Buscar rama/especialidad por ID"
+    )
+    
+    branches = graphene.List(
+        BranchType,
+        school_id=graphene.ID(),
+        activa=graphene.Boolean(),
+        search=graphene.String(),
+        description="Lista de ramas/especialidades"
+    )
+    
+    branches_by_school = graphene.List(
+        BranchType,
+        school_id=graphene.ID(required=True),
+        description="Ramas de una escuela específica"
+    )
+    
+    @login_required
+    def resolve_branch(self, info, id):
+        """Resolver: Buscar rama por ID."""
+        return Branch.objects.select_related('school').get(pk=id)
+    
+    @login_required
+    def resolve_branches(self, info, school_id=None, activa=None, search=None):
+        """Resolver: Lista de ramas/especialidades."""
+        queryset = Branch.objects.select_related('school').all()
+        
+        if school_id:
+            queryset = queryset.filter(school_id=school_id)
+        
+        if activa is not None:
+            queryset = queryset.filter(activa=activa)
+        
+        if search:
+            queryset = queryset.filter(
+                Q(nombre__icontains=search) |
+                Q(school__nombre__icontains=search)
+            )
+        
+        return queryset.order_by('school__nombre', 'nombre')
+    
+    @login_required
+    def resolve_branches_by_school(self, info, school_id):
+        """Resolver: Ramas de una escuela específica."""
+        return Branch.objects.filter(
+            school_id=school_id,
+            activa=True
+        ).order_by('nombre')
+    
+    # ========================================================================
+    # PRACTICE EVALUATION QUERIES (NUEVAS)
+    # ========================================================================
+    
+    evaluation = graphene.Field(
+        PracticeEvaluationType,
+        id=graphene.ID(required=True),
+        description="Buscar evaluación por ID"
+    )
+    
+    evaluations = graphene.List(
+        PracticeEvaluationType,
+        practice_id=graphene.ID(),
+        evaluator_id=graphene.ID(),
+        tipo_evaluador=graphene.String(),
+        periodo_evaluacion=graphene.String(),
+        status=graphene.String(),
+        description="Lista de evaluaciones de prácticas"
+    )
+    
+    my_evaluations = graphene.List(
+        PracticeEvaluationType,
+        description="Evaluaciones del usuario actual"
+    )
+    
+    evaluations_by_practice = graphene.List(
+        PracticeEvaluationType,
+        practice_id=graphene.ID(required=True),
+        description="Evaluaciones de una práctica específica"
+    )
+    
+    @login_required
+    def resolve_evaluation(self, info, id):
+        """Resolver: Buscar evaluación por ID."""
+        current_user = info.context.user
+        evaluation = PracticeEvaluation.objects.select_related(
+            'practice', 'practice__student', 'practice__student__user',
+            'evaluator', 'approved_by'
+        ).get(pk=id)
+        
+        # Verificar permisos
+        if current_user.role == 'PRACTICANTE':
+            if evaluation.practice.student.user != current_user:
+                raise Exception("No tienes permiso para ver esta evaluación")
+        elif current_user.role == 'SUPERVISOR':
+            if evaluation.evaluator != current_user:
+                raise Exception("No tienes permiso para ver esta evaluación")
+        
+        return evaluation
+    
+    @login_required
+    def resolve_evaluations(self, info, practice_id=None, evaluator_id=None, 
+                           tipo_evaluador=None, periodo_evaluacion=None, status=None):
+        """Resolver: Lista de evaluaciones."""
+        current_user = info.context.user
+        queryset = PracticeEvaluation.objects.select_related(
+            'practice', 'practice__student', 'practice__student__user',
+            'evaluator', 'approved_by'
+        ).all()
+        
+        # Filtrar por rol
+        if current_user.role == 'PRACTICANTE':
+            queryset = queryset.filter(practice__student__user=current_user)
+        elif current_user.role == 'SUPERVISOR':
+            queryset = queryset.filter(evaluator=current_user)
+        
+        # Aplicar filtros
+        if practice_id:
+            queryset = queryset.filter(practice_id=practice_id)
+        if evaluator_id:
+            queryset = queryset.filter(evaluator_id=evaluator_id)
+        if tipo_evaluador:
+            queryset = queryset.filter(tipo_evaluador=tipo_evaluador)
+        if periodo_evaluacion:
+            queryset = queryset.filter(periodo_evaluacion=periodo_evaluacion)
+        if status:
+            queryset = queryset.filter(status=status)
+        
+        return queryset.order_by('-fecha_evaluacion')
+    
+    @login_required
+    def resolve_my_evaluations(self, info):
+        """Resolver: Evaluaciones del usuario actual."""
+        current_user = info.context.user
+        
+        if current_user.role == 'PRACTICANTE':
+            return PracticeEvaluation.objects.filter(
+                practice__student__user=current_user
+            ).select_related('practice', 'evaluator', 'approved_by').order_by('-fecha_evaluacion')
+        elif current_user.role == 'SUPERVISOR':
+            return PracticeEvaluation.objects.filter(
+                evaluator=current_user
+            ).select_related('practice', 'practice__student__user', 'approved_by').order_by('-fecha_evaluacion')
+        
+        return []
+    
+    @login_required
+    def resolve_evaluations_by_practice(self, info, practice_id):
+        """Resolver: Evaluaciones de una práctica específica."""
+        current_user = info.context.user
+        
+        # Verificar permiso para ver la práctica
+        practice = Practice.objects.select_related('student__user').get(pk=practice_id)
+        
+        if current_user.role == 'PRACTICANTE' and practice.student.user != current_user:
+            raise Exception("No tienes permiso para ver estas evaluaciones")
+        
+        return PracticeEvaluation.objects.filter(
+            practice_id=practice_id
+        ).select_related('evaluator', 'approved_by').order_by('periodo_evaluacion')
+    
+    # ========================================================================
+    # PRACTICE STATUS HISTORY QUERIES (NUEVAS)
+    # ========================================================================
+    
+    practice_history = graphene.List(
+        PracticeStatusHistoryType,
+        practice_id=graphene.ID(required=True),
+        description="Historial de cambios de estado de una práctica"
+    )
+    
+    status_changes = graphene.List(
+        PracticeStatusHistoryType,
+        estado_nuevo=graphene.String(),
+        description="Lista de cambios de estado"
+    )
+    
+    @login_required
+    def resolve_practice_history(self, info, practice_id):
+        """Resolver: Historial de cambios de una práctica."""
+        current_user = info.context.user
+        
+        # Verificar permiso para ver la práctica
+        practice = Practice.objects.select_related('student__user').get(pk=practice_id)
+        
+        if current_user.role == 'PRACTICANTE' and practice.student.user != current_user:
+            raise Exception("No tienes permiso para ver este historial")
+        elif current_user.role == 'SUPERVISOR' and practice.supervisor.user != current_user:
+            raise Exception("No tienes permiso para ver este historial")
+        
+        return PracticeStatusHistory.objects.filter(
+            practice_id=practice_id
+        ).select_related('usuario_responsable').order_by('-fecha_cambio')
+    
+    @login_required
+    def resolve_status_changes(self, info, estado_nuevo=None):
+        """Resolver: Lista de cambios de estado."""
+        current_user = info.context.user
+        queryset = PracticeStatusHistory.objects.select_related(
+            'practice', 'practice__student__user', 'usuario_responsable'
+        ).all()
+        
+        # Filtrar por rol
+        if current_user.role == 'PRACTICANTE':
+            queryset = queryset.filter(practice__student__user=current_user)
+        elif current_user.role == 'SUPERVISOR':
+            queryset = queryset.filter(practice__supervisor__user=current_user)
+        
+        if estado_nuevo:
+            queryset = queryset.filter(estado_nuevo=estado_nuevo)
+        
+        return queryset.order_by('-fecha_cambio')

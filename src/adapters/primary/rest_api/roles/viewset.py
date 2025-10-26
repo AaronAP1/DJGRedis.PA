@@ -74,7 +74,8 @@ class RoleViewSet(viewsets.ModelViewSet):
     - DELETE /api/v2/roles/{id}/ - Desactivar (admin only)
     """
     
-    queryset = Role.objects.all().prefetch_related('permissions').order_by('code')
+    # La BD real tiene la columna 'nombre' (no 'code'), ordenar por 'nombre' para compatibilidad
+    queryset = Role.objects.all().prefetch_related('permissions').order_by('nombre')
     permission_classes = [IsAuthenticated]
     
     def get_serializer_class(self):
@@ -134,8 +135,9 @@ class RoleViewSet(viewsets.ModelViewSet):
             Response con lista de permisos del rol.
         """
         role = self.get_object()
-        permissions = role.permissions.filter(is_active=True).order_by('module', 'code')
-        
+        # Permission model aquí mapea a 'upeu_permiso' con campos 'module' y 'codigo'
+        permissions = role.permissions.filter(is_active=True).order_by('module', 'codigo')
+
         serializer = PermissionSerializer(permissions, many=True)
         
         return Response({

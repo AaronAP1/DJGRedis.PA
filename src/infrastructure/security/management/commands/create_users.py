@@ -5,7 +5,7 @@ Comando para crear usuarios de prueba con cada rol del sistema.
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from src.adapters.secondary.database.models import Role, Permission, RolePermission, Student, Company, Supervisor
+from src.adapters.secondary.database.models import Role, StudentProfile, Company, SupervisorProfile
 
 User = get_user_model()
 
@@ -26,118 +26,18 @@ class Command(BaseCommand):
             help='Elimina usuarios existentes antes de crear',
         )
 
+    # NOTA: Función deshabilitada - Permission ya no existe en BD real
+    # Los permisos ahora están en Role.permisos como JSONB
     def create_roles_with_permissions(self):
-        """Crea roles con permisos por defecto si no existen."""
-        self.stdout.write('🔧 Verificando roles y permisos por defecto...\n')
+        """DESHABILITADO - Los permisos ahora están en JSONB en upeu_rol."""
+        self.stdout.write('⚠️  Función create_roles_with_permissions DESHABILITADA')
+        self.stdout.write('   Los permisos ahora están en Role.permisos como JSONB\n')
+        return
         
-        # Definir roles con sus permisos por defecto
-        roles_data = {
-            'ADMINISTRADOR': {
-                'name': 'Administrador',
-                'description': 'Acceso completo al sistema',
-                'permissions': [
-                    'users.view', 'users.add', 'users.change', 'users.delete',
-                    'roles.view', 'roles.add', 'roles.change', 'roles.delete',
-                    'permissions.view', 'permissions.add', 'permissions.change', 'permissions.delete',
-                    'students.view', 'students.add', 'students.change', 'students.delete',
-                    'companies.view', 'companies.add', 'companies.change', 'companies.delete',
-                    'practices.view', 'practices.add', 'practices.change', 'practices.delete',
-                    'reports.view', 'reports.generate', 'system.configure'
-                ]
-            },
-            'COORDINADOR': {
-                'name': 'Coordinador',
-                'description': 'Gestión de prácticas y supervisión',
-                'permissions': [
-                    'practices.view', 'practices.add', 'practices.change',
-                    'students.view', 'students.change',
-                    'companies.view', 'companies.add', 'companies.change',
-                    'supervisors.view', 'supervisors.add', 'supervisors.change',
-                    'reports.view', 'reports.generate'
-                ]
-            },
-            'SECRETARIA': {
-                'name': 'Secretaria',
-                'description': 'Gestión administrativa y documentos',
-                'permissions': [
-                    'students.view', 'students.add', 'students.change',
-                    'documents.view', 'documents.add', 'documents.change',
-                    'reports.view', 'communications.send'
-                ]
-            },
-            'SUPERVISOR': {
-                'name': 'Supervisor',
-                'description': 'Supervisión de prácticas asignadas',
-                'permissions': [
-                    'practices.view', 'practices.change',
-                    'students.view', 'evaluations.add', 'evaluations.change',
-                    'reports.view'
-                ]
-            },
-            'PRACTICANTE': {
-                'name': 'Practicante',
-                'description': 'Acceso básico para estudiantes',
-                'permissions': [
-                    'profile.view', 'profile.change',
-                    'documents.view', 'documents.add',
-                    'practices.view'
-                ]
-            }
-        }
-        
-        created_roles = 0
-        created_permissions = 0
-        
-        with transaction.atomic():
-            # Crear permisos únicos
-            all_permissions = set()
-            for role_data in roles_data.values():
-                all_permissions.update(role_data['permissions'])
-            
-            for perm_code in all_permissions:
-                perm, created = Permission.objects.get_or_create(
-                    code=perm_code,
-                    defaults={
-                        'name': perm_code.replace('.', ' ').replace('_', ' ').title(),
-                        'description': f'Permiso para {perm_code}',
-                        'module': perm_code.split('.')[0] if '.' in perm_code else 'general',
-                        'is_active': True
-                    }
-                )
-                if created:
-                    created_permissions += 1
-                    self.stdout.write(f'  ✅ Permiso creado: {perm_code}')
-            
-            # Crear roles con permisos
-            for role_code, role_data in roles_data.items():
-                role, created = Role.objects.get_or_create(
-                    code=role_code,
-                    defaults={
-                        'name': role_data['name'],
-                        'description': role_data['description'],
-                        'is_active': True,
-                        'is_system': True
-                    }
-                )
-                
-                if created:
-                    created_roles += 1
-                    self.stdout.write(f'  ✅ Rol creado: {role_code}')
-                
-                # Asignar permisos al rol
-                current_perms = set(role.permissions.values_list('code', flat=True))
-                expected_perms = set(role_data['permissions'])
-                
-                # Agregar permisos faltantes
-                for perm_code in expected_perms - current_perms:
-                    try:
-                        permission = Permission.objects.get(code=perm_code)
-                        role.permissions.add(permission)
-                        self.stdout.write(f'    ➕ Permiso agregado a {role_code}: {perm_code}')
-                    except Permission.DoesNotExist:
-                        self.stdout.write(f'    ⚠️  Permiso no encontrado: {perm_code}')
-        
-        self.stdout.write(f'📊 Resumen: {created_roles} roles creados, {created_permissions} permisos creados\n')
+    # def create_roles_with_permissions(self):
+    #     """Crea roles con permisos por defecto si no existen."""
+    #     # CÓDIGO COMENTADO - usar JSONB en su lugar
+    #     pass
 
     def handle(self, *args, **options):
         password = options.get('password', 'Test1234')
@@ -146,16 +46,17 @@ class Command(BaseCommand):
         self.stdout.write('👥 Creando usuarios de prueba con roles...\n')
 
         # Crear roles y permisos por defecto
-        self.create_roles_with_permissions()
+        # DESHABILITADO - Permission no existe más
+        # self.create_roles_with_permissions()
 
         # Verificar que existan roles
-        roles = Role.objects.filter(is_active=True)
+        roles = Role.objects.filter(nombre__isnull=False)  # Cambio: usar nombre en vez de is_active
         if not roles.exists():
-            self.stdout.write(self.style.ERROR(
-                '❌ No hay roles en el sistema después de la creación'
+            self.stdout.write(self.style.WARNING(
+                '⚠️  No hay roles en el sistema. Crear roles manualmente o usando insert_test_data_real.sql'
             ))
-            return
-
+            # No salir, continuar con usuarios sin roles
+        
         # Usuarios de prueba por rol (cada uno con su contraseña específica)
         test_users = [
             {
@@ -308,17 +209,14 @@ class Command(BaseCommand):
         try:
             if role_code == 'PRACTICANTE':
                 # Crear perfil de estudiante
-                student, created = Student.objects.get_or_create(
-                    user=user,
+                student, created = StudentProfile.objects.get_or_create(
+                    usuario=user,
                     defaults={
-                        'codigo_estudiante': f'2024{user.id.int % 100000:06d}',  # Formato: 2024001234
-                        'documento_tipo': 'DNI',
-                        'documento_numero': f'{user.id.int % 100000000:08d}',
-                        'telefono': '999888777',
-                        'direccion': 'Av. Universitaria 123, Lima',
-                        'carrera': 'Ingeniería de Sistemas',
-                        'semestre_actual': 8,  # Campo correcto
-                        'promedio_ponderado': 15.50,
+                        'codigo': f'2024{user.id % 100000:06d}',  # Formato: 2024001234
+                        'semestre': 8,
+                        'promedio': 15.50,
+                        'fecha_nacimiento': '2000-01-01',  # Requerido
+                        'estado_academico': 'REGULAR',
                     }
                 )
                 if created:

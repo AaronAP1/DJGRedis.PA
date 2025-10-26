@@ -5,7 +5,7 @@ Comando para limpiar TODOS los usuarios de la BD con sus relaciones.
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from src.adapters.secondary.database.models import Student, Supervisor, Company
+from src.adapters.secondary.database.models import StudentProfile, SupervisorProfile, Company
 
 User = get_user_model()
 
@@ -61,26 +61,26 @@ class Command(BaseCommand):
 
                 # 1. Eliminar perfil de estudiante si existe
                 try:
-                    student = Student.objects.get(user=user)
+                    student = StudentProfile.objects.get(usuario=user)
                     if dry_run:
-                        self.stdout.write(f'  📚 Eliminaría perfil de estudiante: {student.codigo_estudiante}')
+                        self.stdout.write(f'  📚 Eliminaría perfil de estudiante: {student.codigo}')
                     else:
                         student.delete()
-                        self.stdout.write(f'  ✅ Perfil de estudiante eliminado: {student.codigo_estudiante}')
+                        self.stdout.write(f'  ✅ Perfil de estudiante eliminado: {student.codigo}')
                     deleted_students += 1
-                except Student.DoesNotExist:
+                except StudentProfile.DoesNotExist:
                     pass
 
                 # 2. Eliminar perfil de supervisor si existe
                 try:
-                    supervisor = Supervisor.objects.get(user=user)
+                    supervisor = SupervisorProfile.objects.get(usuario=user)
                     if dry_run:
-                        self.stdout.write(f'  👔 Eliminaría perfil de supervisor: {supervisor.nombre_completo}')
+                        self.stdout.write(f'  👔 Eliminaría perfil de supervisor: {user.get_full_name()}')
                     else:
                         supervisor.delete()
-                        self.stdout.write(f'  ✅ Perfil de supervisor eliminado: {supervisor.nombre_completo}')
+                        self.stdout.write(f'  ✅ Perfil de supervisor eliminado: {user.get_full_name()}')
                     deleted_supervisors += 1
-                except Supervisor.DoesNotExist:
+                except SupervisorProfile.DoesNotExist:
                     pass
 
                 # 3. Eliminar usuario (sin verificar relaciones - forzar eliminación)
