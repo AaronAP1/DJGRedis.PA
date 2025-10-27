@@ -433,15 +433,15 @@ class Practice(models.Model):
     Estructura real PostgreSQL con practicante_id (no student_id).
     """
     
-    # Choices para estado_practica ENUM en PostgreSQL
+    # Choices para estado_practica ENUM en PostgreSQL (VALORES REALES)
     ESTADO_CHOICES = [
         ('BORRADOR', 'Borrador'),
         ('PENDIENTE', 'Pendiente'),
-        ('APROBADA', 'Aprobada'),
-        ('EN_CURSO', 'En Curso'),
-        ('COMPLETADA', 'Completada'),
-        ('CANCELADA', 'Cancelada'),
-        ('SUSPENDIDA', 'Suspendida'),
+        ('APROBADO', 'Aprobado'),
+        ('EN_PROGRESO', 'En Progreso'),
+        ('COMPLETADO', 'Completado'),
+        ('RECHAZADO', 'Rechazado'),
+        ('CANCELADO', 'Cancelado'),
     ]
 
     # Choices para modalidad_trabajo ENUM en PostgreSQL
