@@ -52,10 +52,10 @@ class JWTAuthenticationService:
             if not user.is_active:
                 return None
             
-            # Actualizar last_login si está configurado
+            # Actualizar ultimo_acceso si está configurado
             if getattr(settings, 'JWT_UPDATE_LAST_LOGIN', True):
-                user.last_login = timezone.now()
-                user.save(update_fields=['last_login'])
+                user.ultimo_acceso = timezone.now()
+                user.save(update_fields=['ultimo_acceso'])
             
             return user
             
@@ -154,9 +154,9 @@ class JWTAuthenticationService:
         except Exception:
             pass  # Continuar sin OutstandingToken si falla
         
-        # Actualizar last_login
-        user.last_login = timezone.now()
-        user.save(update_fields=['last_login'])
+        # Actualizar ultimo_acceso (last_login es un property que apunta a este campo)
+        user.ultimo_acceso = timezone.now()
+        user.save(update_fields=['ultimo_acceso'])
         
         # Log de seguridad
         security_event_logger.log_security_event(
@@ -175,13 +175,12 @@ class JWTAuthenticationService:
             'message': 'Login exitoso',
             'user': {
                 'id': str(user.id),
-                'email': user.email,
-                'username': user.username,
-                'role': user.role,
-                'nombres': user.first_name,
-                'apellidos': user.last_name,
-                'nombreCompleto': f"{user.first_name} {user.last_name}".strip(),
-                'lastLogin': user.last_login.isoformat() if user.last_login else None,
+                'email': user.correo,  # Campo real: correo
+                'correo': user.correo,
+                'nombres': user.nombres,  # Campo real: nombres
+                'apellidos': user.apellidos,  # Campo real: apellidos
+                'nombreCompleto': f"{user.nombres} {user.apellidos}".strip(),
+                'lastLogin': user.ultimo_acceso.isoformat() if user.ultimo_acceso else None,
             }
         }
         

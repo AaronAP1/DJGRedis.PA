@@ -33,18 +33,18 @@ class JWTLogoutResponse(graphene.ObjectType):
 
 class JWTLogin(graphene.Mutation):
     """
-    Mutation para login con JWT puro.
-    SOLO acepta username (NO email).
+    Mutation para login con JWT usando correo electrónico.
+    Acepta 'correo' (email del usuario) como campo de autenticación.
     """
     
     class Arguments:
-        username = graphene.String(required=True, description="Username del usuario (NO email)")
+        correo = graphene.String(required=True, description="Email del usuario (correo electrónico)")
         password = graphene.String(required=True)
         cloudflare_token = graphene.String(required=False)
     
     Output = JWTLoginResponse
     
-    def mutate(self, info, username, password, cloudflare_token=None):
+    def mutate(self, info, correo, password, cloudflare_token=None):
         request = info.context
         ip_address = get_client_ip(request)
         
@@ -63,15 +63,15 @@ class JWTLogin(graphene.Mutation):
                         }
                     )
             
-            # Validar credenciales
-            user = authenticate(request=request, username=username, password=password)
+            # Validar credenciales (authenticate usa 'username' como parámetro pero busca por correo)
+            user = authenticate(request=request, username=correo, password=password)
             if not user:
                 # Log intento fallido
                 security_event_logger.log_security_event(
                     'login_failed',
-                    f"Failed login attempt for username: {username}",
+                    f"Failed login attempt for correo: {correo}",
                     extra_data={
-                        'username': username,
+                        'correo': correo,
                         'ip_address': ip_address,
                         'reason': 'invalid_credentials'
                     },
@@ -82,17 +82,17 @@ class JWTLogin(graphene.Mutation):
                     "Credenciales inválidas",
                     extensions={
                         'code': 'INVALID_CREDENTIALS',
-                        'field': 'username'
+                        'field': 'correo'
                     }
                 )
             
             if not user.is_active:
                 security_event_logger.log_security_event(
                     'login_failed',
-                    f"Login attempt for inactive user: {username}",
+                    f"Login attempt for inactive user: {correo}",
                     user_id=str(user.id),
                     extra_data={
-                        'username': username,
+                        'correo': correo,
                         'ip_address': ip_address,
                         'reason': 'inactive_user'
                     },
@@ -103,7 +103,7 @@ class JWTLogin(graphene.Mutation):
                     "Usuario inactivo",
                     extensions={
                         'code': 'USER_INACTIVE',
-                        'field': 'username'
+                        'field': 'correo'
                     }
                 )
             
@@ -125,23 +125,40 @@ class JWTLogin(graphene.Mutation):
         except GraphQLError:
             raise
         except Exception as e:
+            # Log del error completo
+            import traceback
+            error_traceback = traceback.format_exc()
+            
             security_event_logger.log_security_event(
                 'login_error',
-                f"Login error for username {username}: {str(e)}",
+                f"Login error for correo {correo}: {str(e)}",
                 extra_data={
-                    'username': username,
+                    'correo': correo,
                     'ip_address': ip_address,
-                    'error': str(e)
+                    'error': str(e),
+                    'traceback': error_traceback
                 },
                 severity='ERROR'
             )
             
-            raise GraphQLError(
-                "Error interno del servidor",
-                extensions={
-                    'code': 'INTERNAL_ERROR'
-                }
-            )
+            # En desarrollo, mostrar el error real
+            from django.conf import settings
+            if settings.DEBUG:
+                raise GraphQLError(
+                    f"Error interno: {str(e)}",
+                    extensions={
+                        'code': 'INTERNAL_ERROR',
+                        'debug_message': str(e),
+                        'traceback': error_traceback
+                    }
+                )
+            else:
+                raise GraphQLError(
+                    "Error interno del servidor",
+                    extensions={
+                        'code': 'INTERNAL_ERROR'
+                    }
+                )
 
 
 class JWTRefresh(graphene.Mutation):

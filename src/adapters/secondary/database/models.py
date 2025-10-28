@@ -36,15 +36,8 @@ class CustomUserManager(BaseUserManager):
         return user
 
     def create_superuser(self, correo, password=None, **extra_fields):
-        """Crea y guarda un superusuario."""
-        extra_fields.setdefault('is_staff', True)
-        extra_fields.setdefault('is_superuser', True)
+        """Crea y guarda un superusuario con rol ADMINISTRADOR."""
         extra_fields.setdefault('activo', True)
-
-        if extra_fields.get('is_staff') is not True:
-            raise ValueError('Superuser debe tener is_staff=True.')
-        if extra_fields.get('is_superuser') is not True:
-            raise ValueError('Superuser debe tener is_superuser=True.')
         
         # Valores por defecto para superusuario
         if 'dni' not in extra_fields:
@@ -53,6 +46,16 @@ class CustomUserManager(BaseUserManager):
             extra_fields['nombres'] = 'Super'
         if 'apellidos' not in extra_fields:
             extra_fields['apellidos'] = 'Administrador'
+        
+        # Asignar rol ADMINISTRADOR si existe
+        if 'rol_id' not in extra_fields:
+            try:
+                # Lazy import para evitar circular dependency
+                from src.adapters.secondary.database.models import Role
+                admin_role = Role.objects.get(nombre='ADMINISTRADOR')
+                extra_fields['rol_id'] = admin_role
+            except:
+                pass  # Si no existe el rol, continuar sin él
 
         return self.create_user(correo, password, **extra_fields)
 
@@ -99,10 +102,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     fecha_creacion = models.DateTimeField('Fecha Creación', auto_now_add=True, db_column='fecha_creacion')
     creado_por = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name='usuarios_creados', db_column='creado_por')
-    
-    # Campos de compatibilidad con AbstractBaseUser (NO en BD)
-    is_staff = models.BooleanField('Es staff', default=False, db_column='is_staff')  # Solo para Django admin
-    is_superuser = models.BooleanField('Es superusuario', default=False, db_column='is_superuser')
     
     # Properties para compatibilidad con código existente
     @property
@@ -158,6 +157,26 @@ class User(AbstractBaseUser, PermissionsMixin):
     @last_login.setter
     def last_login(self, value):
         self.ultimo_acceso = value
+    
+    @property
+    def is_staff(self):
+        """
+        Determina si el usuario puede acceder al admin de Django.
+        Solo ADMINISTRADOR y COORDINADOR tienen acceso al admin.
+        """
+        if self.rol_id is None:
+            return False
+        return self.rol_id.nombre in ['ADMINISTRADOR', 'COORDINADOR']
+    
+    @property
+    def is_superuser(self):
+        """
+        Determina si el usuario es superusuario.
+        Solo el rol ADMINISTRADOR tiene todos los permisos.
+        """
+        if self.rol_id is None:
+            return False
+        return self.rol_id.nombre == 'ADMINISTRADOR'
 
     objects = CustomUserManager()
 
@@ -259,6 +278,24 @@ class User(AbstractBaseUser, PermissionsMixin):
         """Verifica si el usuario tiene todos los permisos especificados."""
         user_perms = set(self.get_all_permissions())
         return set(permission_codes).issubset(user_perms)
+    
+    # ===== MÉTODOS REQUERIDOS POR DJANGO ADMIN =====
+    
+    def has_perm(self, perm, obj=None):
+        """
+        Requerido por Django admin.
+        Los superusuarios tienen todos los permisos.
+        """
+        if self.is_superuser:
+            return True
+        return self.has_permission(perm)
+    
+    def has_module_perms(self, app_label):
+        """
+        Requerido por Django admin.
+        Los superusuarios y staff tienen acceso a todos los módulos.
+        """
+        return self.is_staff or self.is_superuser
 
 
 class Avatar(models.Model):
