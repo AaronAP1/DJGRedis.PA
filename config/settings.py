@@ -430,10 +430,54 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '2.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     'COMPONENT_SPLIT_REQUEST': True,
+    
+    # Configuración de seguridad JWT para Swagger
+    'SECURITY': [
+        {
+            'Bearer': []  # Nombre del esquema de seguridad
+        }
+    ],
+    'COMPONENTS': {
+        'securitySchemes': {
+            'Bearer': {
+                'type': 'http',
+                'scheme': 'bearer',
+                'bearerFormat': 'JWT',
+                'description': 'Ingresa tu token JWT en el formato: **Bearer &lt;token&gt;** (sin las comillas)'
+            }
+        }
+    },
+    
+    # Configuración de Swagger UI
     'SWAGGER_UI_SETTINGS': {
         'deepLinking': True,
-        'persistAuthorization': True,
+        'persistAuthorization': True,  # Mantener el token entre refrescos
         'displayRequestDuration': True,
+        'filter': True,  # Habilitar filtro de búsqueda
+        'displayOperationId': False,
+        'docExpansion': 'list',  # 'list', 'full' o 'none'
+        'defaultModelsExpandDepth': 1,
+        'defaultModelExpandDepth': 1,
+    },
+    
+    # Esquemas de autenticación
+    'APPEND_COMPONENTS': {
+        'securitySchemes': {
+            'Bearer': {
+                'type': 'http',
+                'scheme': 'bearer',
+                'bearerFormat': 'JWT',
+            }
+        }
+    },
+    
+    # Deshabilitar el esquema de seguridad por defecto
+    'SECURITY_DEFINITIONS': {
+        'Bearer': {
+            'type': 'apiKey',
+            'name': 'Authorization',
+            'in': 'header'
+        }
     },
 }
 
