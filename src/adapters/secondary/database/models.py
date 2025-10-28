@@ -36,16 +36,19 @@ class CustomUserManager(BaseUserManager):
         return user
 
     def create_superuser(self, correo, password=None, **extra_fields):
-        """Crea y guarda un superusuario con rol ADMINISTRADOR."""
+        """
+        Crea y guarda un superusuario con rol ADMINISTRADOR.
+        Si no se proporciona contraseña, usa el DNI como contraseña por defecto.
+        """
         extra_fields.setdefault('activo', True)
         
-        # Valores por defecto para superusuario
-        if 'dni' not in extra_fields:
-            extra_fields['dni'] = '00000000'  # DNI temporal para superuser
-        if 'nombres' not in extra_fields:
-            extra_fields['nombres'] = 'Super'
-        if 'apellidos' not in extra_fields:
-            extra_fields['apellidos'] = 'Administrador'
+        # Si no hay contraseña, usar el DNI como contraseña por defecto
+        if password is None or password == '':
+            if 'dni' in extra_fields:
+                password = extra_fields['dni']
+                print(f"⚠️  Usando DNI como contraseña por defecto. Recuerda cambiarla después.")
+            else:
+                raise ValueError('Debe proporcionar una contraseña o DNI')
         
         # Asignar rol ADMINISTRADOR si existe
         if 'rol_id' not in extra_fields:
