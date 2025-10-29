@@ -98,8 +98,8 @@ class RoleSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'fecha_creacion']
     
     def get_permisos_list(self, obj):
-        """Retorna lista de permisos desde el JSONB."""
-        return obj.get_permissions_list()
+        """Retorna lista de permisos desde el JSONB usando get_permissions_codes()."""
+        return obj.get_permissions_codes()
 
 
 class RoleListSerializer(serializers.ModelSerializer):

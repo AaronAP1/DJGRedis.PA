@@ -60,30 +60,30 @@ User = get_user_model()
 )
 class RoleViewSet(viewsets.ModelViewSet):
     """
-    ViewSet para gestión de roles RBAC.
+    ViewSet para roles del sistema (upeu_rol).
+    
+    Los roles del sistema son fijos y predefinidos:
+    - ADMINISTRADOR, COORDINADOR, SECRETARIA, SUPERVISOR, PRACTICANTE
     
     Endpoints disponibles:
-    - GET /api/v2/roles/ - Lista de roles
-    - GET /api/v2/roles/{id}/ - Detalle de rol con permisos
+    - GET /api/v2/roles/ - Lista de roles del sistema
+    - GET /api/v2/roles/{id}/ - Detalle de rol con permisos JSONB
     - GET /api/v2/roles/{id}/permissions/ - Permisos del rol
     - GET /api/v2/roles/{id}/users/ - Usuarios con este rol
-    - POST /api/v2/roles/ - Crear rol (admin only)
-    - POST /api/v2/roles/{id}/add-permission/ - Agregar permiso (admin only)
-    - DELETE /api/v2/roles/{id}/remove-permission/ - Remover permiso (admin only)
-    - PUT/PATCH /api/v2/roles/{id}/ - Actualizar (admin only)
-    - DELETE /api/v2/roles/{id}/ - Desactivar (admin only)
+    - PATCH /api/v2/roles/{id}/ - Actualizar permisos JSONB (admin only)
+    
+    NOTA: No se pueden crear/eliminar roles porque son parte del sistema.
     """
     
     # Tabla 'upeu_rol' - Sistema legacy con roles del sistema
     queryset = Role.objects.all().order_by('nombre')
     permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'patch', 'head', 'options']  # Solo GET y PATCH
     
     def get_serializer_class(self):
         """Retorna el serializer apropiado según la acción."""
         if self.action == 'list':
             return RoleListSerializer
-        elif self.action == 'create':
-            return RoleCreateSerializer
         return RoleSerializer
     
     def get_permissions(self):
@@ -91,10 +91,9 @@ class RoleViewSet(viewsets.ModelViewSet):
         Permisos personalizados según la acción.
         
         - list, retrieve: Cualquier usuario autenticado
-        - create, update, partial_update, destroy, add/remove permissions: Solo administradores
+        - partial_update: Solo administradores (para actualizar permisos JSONB)
         """
-        if self.action in ['create', 'update', 'partial_update', 'destroy', 
-                          'add_permission', 'remove_permission']:
+        if self.action in ['partial_update']:
             return [IsAdminUser()]
         return [IsAuthenticated()]
     
@@ -102,9 +101,7 @@ class RoleViewSet(viewsets.ModelViewSet):
         """
         Filtra el queryset según parámetros.
         
-        Soporta filtrado por:
-        - is_active: Muestra roles activos/inactivos
-        - is_system: Filtra roles del sistema
+        Soporta filtrado por nombre de rol.
         """
         queryset = super().get_queryset()
         
@@ -328,61 +325,25 @@ class RoleViewSet(viewsets.ModelViewSet):
             'data': serializer.data
         })
     
-    def create(self, request, *args, **kwargs):
-        """Crear nuevo rol (admin only)."""
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        
-        # Retornar con serializer completo
-        role = serializer.instance
-        detail_serializer = RoleSerializer(role)
-        
-        return Response(
-            {
-                'message': 'Rol creado exitosamente',
-                'data': detail_serializer.data
-            },
-            status=status.HTTP_201_CREATED
-        )
+    # create() no es necesario porque POST está deshabilitado en http_method_names
+    # Los roles del sistema son fijos y no se crean dinámicamente
     
     def update(self, request, *args, **kwargs):
-        """Actualizar rol (admin only)."""
+        """Actualizar rol - Solo permisos JSONB (admin only)."""
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         
-        # No permitir modificar roles del sistema
-        if instance.is_system:
-            return Response(
-                {'error': 'No se pueden modificar roles del sistema'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
+        # Todos los roles en upeu_rol son del sistema, pero permitimos actualizar permisos JSONB
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
         
         return Response({
-            'message': 'Rol actualizado exitosamente',
+            'message': 'Permisos del rol actualizados exitosamente',
             'data': serializer.data
         })
     
-    def destroy(self, request, *args, **kwargs):
-        """Desactivar rol (soft delete - no elimina roles del sistema)."""
-        instance = self.get_object()
-        
-        # No permitir eliminar roles del sistema
-        if instance.is_system:
-            return Response(
-                {'error': 'No se pueden eliminar roles del sistema'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        # Soft delete - solo marcar como inactivo
-        instance.is_active = False
-        instance.save()
-        
-        return Response(
-            {'message': f'Rol "{instance.name}" desactivado exitosamente'},
-            status=status.HTTP_204_NO_CONTENT
-        )
+    
+    # destroy() no es necesario porque DELETE está deshabilitado en http_method_names
+    # Los roles del sistema no se pueden eliminar
+
