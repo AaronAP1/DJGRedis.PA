@@ -12,37 +12,63 @@ User = get_user_model()
 
 
 # ============================================================================
+# HELPER PARA OBTENER ROL
+# ============================================================================
+
+def get_user_role(user) -> str:
+    """
+    Obtiene el rol del usuario de manera segura.
+    
+    Args:
+        user: Usuario de Django
+        
+    Returns:
+        str: Nombre del rol o 'ADMINISTRADOR' si es superuser
+    """
+    if not user or not user.is_authenticated:
+        return ''
+    
+    if user.is_superuser:
+        return 'ADMINISTRADOR'
+    
+    try:
+        return user.rol_id.nombre if user.rol_id else ''
+    except Exception:
+        return ''
+
+
+# ============================================================================
 # VERIFICADORES DE ROL
 # ============================================================================
 
 def is_administrador(user) -> bool:
     """Verifica si el usuario es ADMINISTRADOR."""
-    return user and user.is_authenticated and user.role == 'ADMINISTRADOR'
+    return user and user.is_authenticated and get_user_role(user) == 'ADMINISTRADOR'
 
 
 def is_coordinador(user) -> bool:
     """Verifica si el usuario es COORDINADOR."""
-    return user and user.is_authenticated and user.role == 'COORDINADOR'
+    return user and user.is_authenticated and get_user_role(user) == 'COORDINADOR'
 
 
 def is_secretaria(user) -> bool:
     """Verifica si el usuario es SECRETARIA."""
-    return user and user.is_authenticated and user.role == 'SECRETARIA'
+    return user and user.is_authenticated and get_user_role(user) == 'SECRETARIA'
 
 
 def is_supervisor(user) -> bool:
     """Verifica si el usuario es SUPERVISOR."""
-    return user and user.is_authenticated and user.role == 'SUPERVISOR'
+    return user and user.is_authenticated and get_user_role(user) == 'SUPERVISOR'
 
 
 def is_practicante(user) -> bool:
     """Verifica si el usuario es PRACTICANTE."""
-    return user and user.is_authenticated and user.role == 'PRACTICANTE'
+    return user and user.is_authenticated and get_user_role(user) == 'PRACTICANTE'
 
 
 def is_staff(user) -> bool:
     """Verifica si el usuario es personal administrativo."""
-    return user and user.is_authenticated and user.role in [
+    return user and user.is_authenticated and get_user_role(user) in [
         'ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA'
     ]
 
@@ -81,8 +107,10 @@ def can_update_user(user, target_user) -> bool:
         return True
     
     # COORDINADOR y SECRETARIA pueden actualizar excepto ADMINISTRADOR
-    if user.role in ['COORDINADOR', 'SECRETARIA']:
-        return target_user.role != 'ADMINISTRADOR'
+    user_role = get_user_role(user)
+    target_role = get_user_role(target_user)
+    if user_role in ['COORDINADOR', 'SECRETARIA']:
+        return target_role != 'ADMINISTRADOR'
     
     return False
 
@@ -208,7 +236,7 @@ def can_validate_company(user) -> bool:
     if not user or not user.is_authenticated:
         return False
     
-    return user.role in ['ADMINISTRADOR', 'COORDINADOR']
+    return get_user_role(user) in ['ADMINISTRADOR', 'COORDINADOR']
 
 
 # ============================================================================
@@ -280,7 +308,7 @@ def can_update_practice(user, practice) -> bool:
         return False
     
     # ADMINISTRADOR y COORDINADOR pueden actualizar cualquier práctica
-    if user.role in ['ADMINISTRADOR', 'COORDINADOR']:
+    if get_user_role(user) in ['ADMINISTRADOR', 'COORDINADOR']:
         return True
     
     # SECRETARIA puede actualizar datos básicos
@@ -304,7 +332,7 @@ def can_approve_practice(user) -> bool:
     if not user or not user.is_authenticated:
         return False
     
-    return user.role in ['ADMINISTRADOR', 'COORDINADOR']
+    return get_user_role(user) in ['ADMINISTRADOR', 'COORDINADOR']
 
 
 def can_evaluate_practice(user, practice) -> bool:
@@ -413,7 +441,7 @@ def can_approve_document(user) -> bool:
     if not user or not user.is_authenticated:
         return False
     
-    return user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
+    return get_user_role(user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
 
 
 # ============================================================================

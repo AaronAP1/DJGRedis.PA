@@ -211,23 +211,30 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def is_practicante(self):
-        return self.role == 'PRACTICANTE'
+        """Verifica si el usuario es PRACTICANTE."""
+        return self.rol_id and self.rol_id.nombre == 'PRACTICANTE'
 
     @property
     def is_supervisor(self):
-        return self.role == 'SUPERVISOR'
+        """Verifica si el usuario es SUPERVISOR."""
+        return self.rol_id and self.rol_id.nombre == 'SUPERVISOR'
 
     @property
     def is_coordinador(self):
-        return self.role == 'COORDINADOR'
+        """Verifica si el usuario es COORDINADOR."""
+        return self.rol_id and self.rol_id.nombre == 'COORDINADOR'
 
     @property
     def is_secretaria(self):
-        return self.role == 'SECRETARIA'
+        """Verifica si el usuario es SECRETARIA."""
+        return self.rol_id and self.rol_id.nombre == 'SECRETARIA'
 
     @property
     def is_administrador(self):
-        return self.role == 'ADMINISTRADOR'
+        """Verifica si el usuario es ADMINISTRADOR."""
+        if self.rol_id is None:
+            return False
+        return self.rol_id.nombre == 'ADMINISTRADOR'
     
     # ===== MÉTODOS DE PERMISOS =====
     
@@ -235,36 +242,33 @@ class User(AbstractBaseUser, PermissionsMixin):
         """Obtiene todos los permisos efectivos del usuario (rol + personalizados)."""
         permissions = set()
         
-        # 1. Permisos del rol (si tiene)
-        # Primero intentar con role_obj (ForeignKey), luego con role (legacy)
-        role_obj = None
-        if self.role_obj:
-            role_obj = self.role_obj
-        elif self.role:
+        # 1. Permisos del rol (desde rol_id FK)
+        if self.rol_id:
             try:
-                from src.adapters.secondary.database.models import Role
-                role_obj = Role.objects.get(code=self.role, is_active=True)
-            except Role.DoesNotExist:
+                role_perms = self.rol_id.get_permissions_codes()
+                permissions.update(role_perms)
+            except Exception:
                 pass
         
-        if role_obj:
-            role_perms = role_obj.get_permissions_codes()
-            permissions.update(role_perms)
-        
-        # 2. Permisos personalizados
-        custom_perms = self.custom_permissions.select_related('permission').filter(
-            permission__is_active=True
-        )
-        
-        for custom in custom_perms:
-            # Verificar si no expiró
-            if custom.expires_at and custom.is_expired():
-                continue
+        # 2. Permisos personalizados (si existen - tabla UserPermission)
+        # 2. Permisos personalizados (si existen - tabla UserPermission)
+        try:
+            custom_perms = self.custom_permissions.select_related('permission').filter(
+                permission__is_active=True
+            )
             
-            if custom.permission_type == 'GRANT':
-                permissions.add(custom.permission.code)
-            elif custom.permission_type == 'REVOKE':
-                permissions.discard(custom.permission.code)
+            for custom in custom_perms:
+                # Verificar si no expiró
+                if custom.expires_at and custom.is_expired():
+                    continue
+                
+                if custom.permission_type == 'GRANT':
+                    permissions.add(custom.permission.code)
+                elif custom.permission_type == 'REVOKE':
+                    permissions.discard(custom.permission.code)
+        except Exception:
+            # No hay permisos personalizados o error al obtenerlos
+            pass
         
         return list(permissions)
     

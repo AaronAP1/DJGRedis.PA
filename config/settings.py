@@ -244,6 +244,11 @@ SIMPLE_JWT = {
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
     
+    # IMPORTANTE: SimpleJWT debe usar el backend de autenticación personalizado
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
+    'USER_AUTHENTICATION_RULE': 'rest_framework_simplejwt.authentication.default_user_authentication_rule',
+    
     # Configuración de cookies HttpOnly con nombres custom
     'AUTH_COOKIE': 'djgredis_session',     # Access token
     'AUTH_COOKIE_REFRESH': 'djgredis_auth', # Refresh token

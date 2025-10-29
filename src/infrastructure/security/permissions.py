@@ -13,6 +13,32 @@ from rest_framework import permissions
 
 
 # ============================================================================
+# HELPER FUNCTION - Obtener rol del usuario
+# ============================================================================
+
+def get_user_role(user):
+    """
+    Obtiene el rol del usuario desde rol_id.nombre.
+    El modelo User tiene rol_id (FK a upeu_rol), no un campo 'role' directo.
+    
+    Returns:
+        str: Nombre del rol ('ADMINISTRADOR', 'COORDINADOR', etc.) o None
+    """
+    if not user or not user.is_authenticated:
+        return None
+    
+    # user.rol_id es FK a Role (upeu_rol)
+    if hasattr(user, 'rol_id') and user.rol_id:
+        return user.rol_id.nombre  # upeu_rol.nombre
+    
+    # Fallback: si es superuser, considerarlo ADMINISTRADOR
+    if user.is_superuser:
+        return 'ADMINISTRADOR'
+    
+    return None
+
+
+# ============================================================================
 # PERMISOS BASE POR ROL
 # ============================================================================
 
@@ -30,7 +56,7 @@ class IsAdministrador(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role == 'ADMINISTRADOR'
+            get_user_role(request.user) == 'ADMINISTRADOR'
         )
 
 
@@ -41,7 +67,7 @@ class IsPracticante(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role == 'PRACTICANTE'
+            get_user_role(request.user) == 'PRACTICANTE'
         )
 
 
@@ -52,7 +78,7 @@ class IsSupervisor(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role == 'SUPERVISOR'
+            get_user_role(request.user) == 'SUPERVISOR'
         )
 
 
@@ -63,7 +89,7 @@ class IsCoordinador(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role == 'COORDINADOR'
+            get_user_role(request.user) == 'COORDINADOR'
         )
 
 
@@ -74,7 +100,7 @@ class IsSecretaria(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role == 'SECRETARIA'
+            get_user_role(request.user) == 'SECRETARIA'
         )
 
 
@@ -89,7 +115,7 @@ class IsAdminOrCoordinador(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role in ['ADMINISTRADOR', 'COORDINADOR']
+            get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR']
         )
 
 
@@ -100,7 +126,7 @@ class IsAdminOrCoordinadorOrSecretaria(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
+            get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
         )
 
 
@@ -111,7 +137,7 @@ class IsStaffMember(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
+            get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
         )
 
 
@@ -137,7 +163,7 @@ class IsOwnerOrAdmin(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj):
         # ADMINISTRADOR tiene acceso total
-        if request.user.role == 'ADMINISTRADOR':
+        if get_user_role(request.user) == 'ADMINISTRADOR':
             return True
         
         # Verificar propiedad
@@ -153,7 +179,7 @@ class IsOwnerOrStaff(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj):
         # Personal administrativo tiene acceso
-        if request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
+        if get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
             return True
         
         # Verificar propiedad
@@ -176,17 +202,17 @@ class CanManageUsers(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
+            get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
         )
 
     def has_object_permission(self, request, view, obj):
         # ADMINISTRADOR puede hacer todo
-        if request.user.role == 'ADMINISTRADOR':
+        if get_user_role(request.user) == 'ADMINISTRADOR':
             return True
         
         # COORDINADOR y SECRETARIA pueden gestionar excepto ADMIN
-        if request.user.role in ['COORDINADOR', 'SECRETARIA']:
-            return obj.role != 'ADMINISTRADOR'
+        if get_user_role(request.user) in ['COORDINADOR', 'SECRETARIA']:
+            return get_user_role(obj) != 'ADMINISTRADOR'
         
         return False
 
@@ -197,7 +223,7 @@ class CanViewOwnProfile(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         # Solo métodos seguros (GET, HEAD, OPTIONS)
         if request.method in permissions.SAFE_METHODS:
-            return obj == request.user or request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
+            return obj == request.user or get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
         return False
 
 
@@ -210,7 +236,7 @@ class CanUpdateOwnProfile(permissions.BasePermission):
             return True
         
         # Staff puede actualizar perfiles
-        if request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
+        if get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
             return True
         
         return False
@@ -227,7 +253,7 @@ class CanManageStudents(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
+            get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
         )
 
 
@@ -236,7 +262,7 @@ class CanViewStudent(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj):
         # Staff puede ver todos
-        if request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
+        if get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
             return True
         
         # Estudiante puede ver su propio perfil
@@ -244,7 +270,7 @@ class CanViewStudent(permissions.BasePermission):
             return True
         
         # Supervisor puede ver estudiantes asignados
-        if request.user.role == 'SUPERVISOR':
+        if get_user_role(request.user) == 'SUPERVISOR':
             # Verificar si tiene prácticas con este estudiante
             if hasattr(request.user, 'supervisor_profile'):
                 return obj.practices.filter(
@@ -265,7 +291,7 @@ class CanManageCompanies(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
+            get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
         )
 
 
@@ -278,11 +304,11 @@ class CanViewCompany(permissions.BasePermission):
             return True
         
         # Staff puede ver todas
-        if request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
+        if get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
             return True
         
         # Supervisor puede ver su propia empresa
-        if request.user.role == 'SUPERVISOR':
+        if get_user_role(request.user) == 'SUPERVISOR':
             if hasattr(request.user, 'supervisor_profile'):
                 return obj == request.user.supervisor_profile.company
         
@@ -296,7 +322,7 @@ class CanValidateCompany(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role in ['ADMINISTRADOR', 'COORDINADOR']
+            get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR']
         )
 
 
@@ -309,11 +335,11 @@ class CanCreatePractice(permissions.BasePermission):
 
     def has_permission(self, request, view):
         # PRACTICANTE puede crear sus propias prácticas
-        if request.user.role == 'PRACTICANTE':
+        if get_user_role(request.user) == 'PRACTICANTE':
             return True
         
         # Staff puede crear prácticas para estudiantes
-        if request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
+        if get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
             return True
         
         return False
@@ -324,16 +350,16 @@ class CanViewPractice(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj):
         # Staff puede ver todas
-        if request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
+        if get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
             return True
         
         # Practicante puede ver sus propias prácticas
-        if request.user.role == 'PRACTICANTE':
+        if get_user_role(request.user) == 'PRACTICANTE':
             if hasattr(obj, 'student') and hasattr(obj.student, 'user'):
                 return obj.student.user == request.user
         
         # Supervisor puede ver prácticas asignadas
-        if request.user.role == 'SUPERVISOR':
+        if get_user_role(request.user) == 'SUPERVISOR':
             if hasattr(request.user, 'supervisor_profile'):
                 return obj.supervisor == request.user.supervisor_profile
         
@@ -345,24 +371,24 @@ class CanUpdatePractice(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj):
         # ADMINISTRADOR puede actualizar cualquier práctica
-        if request.user.role == 'ADMINISTRADOR':
+        if get_user_role(request.user) == 'ADMINISTRADOR':
             return True
         
         # COORDINADOR puede actualizar cualquier práctica
-        if request.user.role == 'COORDINADOR':
+        if get_user_role(request.user) == 'COORDINADOR':
             return True
         
         # SECRETARIA puede actualizar datos básicos
-        if request.user.role == 'SECRETARIA':
+        if get_user_role(request.user) == 'SECRETARIA':
             return True
         
         # PRACTICANTE solo puede actualizar si está en DRAFT
-        if request.user.role == 'PRACTICANTE':
+        if get_user_role(request.user) == 'PRACTICANTE':
             if hasattr(obj, 'student') and hasattr(obj.student, 'user'):
                 return obj.student.user == request.user and obj.status == 'DRAFT'
         
         # SUPERVISOR puede actualizar prácticas asignadas (evaluación)
-        if request.user.role == 'SUPERVISOR':
+        if get_user_role(request.user) == 'SUPERVISOR':
             if hasattr(request.user, 'supervisor_profile'):
                 return obj.supervisor == request.user.supervisor_profile
         
@@ -376,7 +402,7 @@ class CanApprovePractice(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role in ['ADMINISTRADOR', 'COORDINADOR']
+            get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR']
         )
 
 
@@ -385,11 +411,11 @@ class CanEvaluatePractice(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj):
         # COORDINADOR puede evaluar
-        if request.user.role == 'COORDINADOR':
+        if get_user_role(request.user) == 'COORDINADOR':
             return True
         
         # SUPERVISOR puede evaluar sus prácticas asignadas
-        if request.user.role == 'SUPERVISOR':
+        if get_user_role(request.user) == 'SUPERVISOR':
             if hasattr(request.user, 'supervisor_profile'):
                 return obj.supervisor == request.user.supervisor_profile
         
@@ -405,11 +431,11 @@ class CanUploadDocument(permissions.BasePermission):
 
     def has_permission(self, request, view):
         # PRACTICANTE puede subir documentos a sus prácticas
-        if request.user.role == 'PRACTICANTE':
+        if get_user_role(request.user) == 'PRACTICANTE':
             return True
         
         # Staff puede subir documentos
-        if request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
+        if get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
             return True
         
         return False
@@ -420,17 +446,17 @@ class CanViewDocument(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj):
         # Staff puede ver todos
-        if request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
+        if get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
             return True
         
         # Practicante puede ver documentos de sus prácticas
-        if request.user.role == 'PRACTICANTE':
+        if get_user_role(request.user) == 'PRACTICANTE':
             if hasattr(obj, 'practice') and hasattr(obj.practice, 'student'):
                 if hasattr(obj.practice.student, 'user'):
                     return obj.practice.student.user == request.user
         
         # Supervisor puede ver documentos de prácticas asignadas
-        if request.user.role == 'SUPERVISOR':
+        if get_user_role(request.user) == 'SUPERVISOR':
             if hasattr(request.user, 'supervisor_profile'):
                 if hasattr(obj, 'practice'):
                     return obj.practice.supervisor == request.user.supervisor_profile
@@ -443,11 +469,11 @@ class CanDeleteDocument(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj):
         # ADMINISTRADOR puede eliminar cualquier documento
-        if request.user.role == 'ADMINISTRADOR':
+        if get_user_role(request.user) == 'ADMINISTRADOR':
             return True
         
         # Practicante puede eliminar sus propios documentos si no están aprobados
-        if request.user.role == 'PRACTICANTE':
+        if get_user_role(request.user) == 'PRACTICANTE':
             if hasattr(obj, 'subido_por') and obj.subido_por == request.user:
                 return not obj.aprobado
         
@@ -461,7 +487,7 @@ class CanApproveDocument(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
+            get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
         )
 
 
@@ -478,7 +504,7 @@ class CanViewNotification(permissions.BasePermission):
             return obj.user == request.user
         
         # Staff puede ver todas
-        if request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
+        if get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']:
             return True
         
         return False
@@ -491,7 +517,7 @@ class CanCreateNotification(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
+            get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
         )
 
 
@@ -516,7 +542,7 @@ class IsAuthenticatedReadOnly(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
+            get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
         )
 
 
@@ -531,7 +557,7 @@ class IsAdminOnly(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role == 'ADMINISTRADOR'
+            get_user_role(request.user) == 'ADMINISTRADOR'
         )
 
 
@@ -542,5 +568,5 @@ class IsAdminOrCoordinatorOrSecretary(permissions.BasePermission):
         return bool(
             request.user and 
             request.user.is_authenticated and 
-            request.user.role in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
+            get_user_role(request.user) in ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA']
         )
