@@ -74,8 +74,8 @@ class RoleViewSet(viewsets.ModelViewSet):
     - DELETE /api/v2/roles/{id}/ - Desactivar (admin only)
     """
     
-    # La BD real tiene la columna 'nombre' (no 'code'), ordenar por 'nombre' para compatibilidad
-    queryset = Role.objects.all().prefetch_related('permissions').order_by('nombre')
+    # Tabla 'upeu_rol' - Sistema legacy con roles del sistema
+    queryset = Role.objects.all().order_by('nombre')
     permission_classes = [IsAuthenticated]
     
     def get_serializer_class(self):

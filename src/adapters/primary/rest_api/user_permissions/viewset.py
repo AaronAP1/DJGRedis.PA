@@ -68,7 +68,7 @@ class UserPermissionViewSet(viewsets.ModelViewSet):
     """
     
     queryset = UserPermission.objects.all().select_related(
-        'user', 'permission', 'granted_by'
+        'usuario', 'permiso', 'otorgado_por'
     ).order_by('-granted_at')
     permission_classes = [IsAdminUser]  # Solo admins pueden gestionar overrides
     
@@ -151,8 +151,8 @@ class UserPermissionViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        queryset = UserPermission.objects.filter(user=user).select_related(
-            'permission', 'granted_by'
+        queryset = UserPermission.objects.filter(usuario=user).select_related(
+            'permiso', 'otorgado_por'
         )
         
         # Filtrar solo activos si se solicita

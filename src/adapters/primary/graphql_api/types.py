@@ -467,16 +467,23 @@ class NotificationFilter(FilterSet):
 class NotificationType(DjangoObjectType):
     """Tipo GraphQL para Notificación."""
     
+    # Definir user explícitamente como property (no es campo del modelo)
+    user = graphene.Field('src.adapters.primary.graphql_api.types.UserType')
+    
     class Meta:
         model = Notification
         interfaces = (graphene.relay.Node,)
         filterset_class = NotificationFilter
         fields = (
-            'id', 'user', 'titulo', 'mensaje', 'tipo', 'leida',
+            'id', 'user_id', 'titulo', 'mensaje', 'tipo', 'leida',
             'fecha_lectura', 'accion_url', 'created_at', 'updated_at'
         )
 
     es_importante = graphene.Boolean()
+    
+    def resolve_user(self, info):
+        """Resuelve el usuario relacionado."""
+        return self.user  # Usa la property del modelo
     
     def resolve_es_importante(self, info):
         """Resuelve si es importante."""

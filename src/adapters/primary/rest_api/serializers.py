@@ -25,7 +25,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from src.adapters.secondary.database.models import (
     Student, StudentProfile, SupervisorProfile, Company, Supervisor, Practice, Document, Notification, Avatar,
-    Role, Permission, RolePermission, UserPermission,
+    Role, RoleNew, Permission, RolePermission, UserPermission,
     School, Branch, PracticeEvaluation, PracticeStatusHistory
 )
 from datetime import datetime, timedelta
@@ -78,78 +78,69 @@ class RolePermissionSerializer(serializers.ModelSerializer):
 
 
 class RoleSerializer(serializers.ModelSerializer):
-    """Serializer completo para roles con permisos."""
+    """Serializer completo para roles del sistema (upeu_rol)."""
     
-    # Declarar properties como ReadOnlyField
+    # Exponer properties como campos legibles
     code = serializers.ReadOnlyField()
     name = serializers.ReadOnlyField()
     description = serializers.ReadOnlyField()
+    permissions = serializers.ReadOnlyField()  # Property que retorna []
     
-    permissions = PermissionListSerializer(many=True, read_only=True)
-    permissions_count = serializers.SerializerMethodField()
+    # Permisos desde JSONB
+    permisos_list = serializers.SerializerMethodField()
     
     class Meta:
         model = Role
         fields = [
-            'id', 'nombre', 'code', 'name', 'descripcion', 'description', 
-            'permisos', 'permissions', 'permissions_count',
-            'fecha_creacion'
+            'id', 'nombre', 'code', 'name', 'descripcion', 'description',
+            'permisos', 'permisos_list', 'permissions', 'fecha_creacion'
         ]
         read_only_fields = ['id', 'fecha_creacion']
     
-    def get_permissions_count(self, obj):
-        """Retorna cantidad de permisos activos del rol."""
-        return obj.permissions.filter(is_active=True).count()
+    def get_permisos_list(self, obj):
+        """Retorna lista de permisos desde el JSONB."""
+        return obj.get_permissions_list()
 
 
 class RoleListSerializer(serializers.ModelSerializer):
-    """Serializer resumido para listar roles."""
+    """Serializer resumido para listar roles del sistema."""
     
-    # Declarar properties como ReadOnlyField
     code = serializers.ReadOnlyField()
     name = serializers.ReadOnlyField()
     
-    permissions_count = serializers.SerializerMethodField()
-    
     class Meta:
         model = Role
-        fields = ['id', 'nombre', 'code', 'name', 'permissions_count']
-    
-    def get_permissions_count(self, obj):
-        return obj.permissions.filter(is_active=True).count()
+        fields = ['id', 'nombre', 'code', 'name', 'descripcion']
 
 
 class RoleCreateSerializer(serializers.ModelSerializer):
-    """Serializer para crear roles."""
+    """Serializer para crear roles del sistema."""
     
-    permission_ids = serializers.ListField(
-        child=serializers.IntegerField(),  # Changed from UUIDField to IntegerField
+    permisos_dict = serializers.JSONField(
         write_only=True,
         required=False,
-        help_text="Lista de IDs de permisos a asignar al rol"
+        help_text='Estructura JSON de permisos. Ej: {"practices": ["view", "create"]}'
     )
     
     class Meta:
         model = Role
-        fields = ['nombre', 'descripcion', 'permisos', 'permission_ids']
+        fields = ['nombre', 'descripcion', 'permisos_dict']
     
     def validate_nombre(self, value):
-        """Validar que el nombre sea único y en mayúsculas."""
+        """Validar que el nombre sea un tipo_rol válido."""
         value = value.upper()
+        valid_roles = ['ADMINISTRADOR', 'COORDINADOR', 'SECRETARIA', 'SUPERVISOR', 'PRACTICANTE']
+        if value not in valid_roles:
+            raise serializers.ValidationError(f'El rol debe ser uno de: {", ".join(valid_roles)}')
         if Role.objects.filter(nombre=value).exists():
             raise serializers.ValidationError('Ya existe un rol con este nombre')
         return value
     
     def create(self, validated_data):
-        """Crear rol y asignar permisos."""
-        permission_ids = validated_data.pop('permission_ids', [])
+        """Crear rol con permisos JSONB."""
+        permisos_dict = validated_data.pop('permisos_dict', {})
+        validated_data['permisos'] = permisos_dict
         role = Role.objects.create(**validated_data)
-        
-        # Asignar permisos si se proporcionaron
-        if permission_ids:
-            permissions = Permission.objects.filter(id__in=permission_ids, is_active=True)
-            role.permissions.set(permissions)
-        
         return role
 
 
@@ -157,14 +148,15 @@ class UserPermissionSerializer(serializers.ModelSerializer):
     """Serializer para permisos específicos de usuario (overrides)."""
     
     permiso_detail = PermissionSerializer(source='permiso', read_only=True)
-    permiso_id = serializers.IntegerField(write_only=True)
+    permiso_id = serializers.UUIDField(write_only=True)  # UUID para permissions
     usuario_email = serializers.EmailField(source='usuario.correo', read_only=True)
+    otorgado_por_email = serializers.EmailField(source='otorgado_por.correo', read_only=True)
     
     class Meta:
         model = UserPermission
         fields = [
             'id', 'usuario', 'usuario_email', 'permiso', 'permiso_detail', 'permiso_id',
-            'permiso_tipo', 'granted_at'
+            'permiso_tipo', 'granted_at', 'expires_at', 'otorgado_por', 'otorgado_por_email'
         ]
         read_only_fields = ['id', 'granted_at']
     
@@ -174,10 +166,6 @@ class UserPermissionSerializer(serializers.ModelSerializer):
         permiso = Permission.objects.get(id=permiso_id)
         validated_data['permiso'] = permiso
         return UserPermission.objects.create(**validated_data)
-        if obj.expires_at is None:
-            return False
-        from django.utils import timezone
-        return timezone.now() > obj.expires_at
 
 
 class UserPermissionCreateSerializer(serializers.ModelSerializer):
@@ -704,10 +692,10 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
         return obj.practices.count()
     
     def get_active_practices(self, obj):
-        return obj.practices.filter(status='IN_PROGRESS').count()
+        return obj.practices.filter(estado='IN_PROGRESS').count()
     
     def get_completed_practices(self, obj):
-        return obj.practices.filter(status='COMPLETED').count()
+        return obj.practices.filter(estado='COMPLETED').count()
 
 
 class CompanyCreateSerializer(serializers.ModelSerializer):
@@ -803,7 +791,7 @@ class SupervisorListSerializer(serializers.ModelSerializer):
     
     def get_total_practices(self, obj):
         """Total de prácticas supervisadas."""
-        return obj.practices.count()
+        return obj.supervised_practices.count()
 
 
 class SupervisorDetailSerializer(serializers.ModelSerializer):
@@ -826,13 +814,13 @@ class SupervisorDetailSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'fecha_creacion']
     
     def get_total_practices(self, obj):
-        return obj.practices.count()
+        return obj.supervised_practices.count()
     
     def get_active_practices(self, obj):
-        return obj.practices.filter(estado='IN_PROGRESS').count()
+        return obj.supervised_practices.filter(estado='IN_PROGRESS').count()
     
     def get_completed_practices(self, obj):
-        return obj.practices.filter(estado='COMPLETED').count()
+        return obj.supervised_practices.filter(estado='COMPLETED').count()
 
 
 class SupervisorCreateSerializer(serializers.ModelSerializer):
@@ -1379,16 +1367,27 @@ class DocumentApproveSerializer(serializers.Serializer):
 class NotificationListSerializer(serializers.ModelSerializer):
     """Serializer simple para listar notificaciones."""
     
-    user = UserListSerializer(read_only=True)
+    user = serializers.SerializerMethodField()  # Property, no campo del modelo
     time_since = serializers.SerializerMethodField()
     
     class Meta:
         model = Notification
         fields = [
-            'id', 'user', 'tipo', 'titulo', 'mensaje', 'leida', 'time_since',
+            'id', 'user_id', 'user', 'tipo', 'titulo', 'mensaje', 'leida', 'time_since',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user_id', 'created_at', 'updated_at']
+    
+    def get_user(self, obj):
+        """Obtiene el usuario mediante la property."""
+        user = obj.user  # Usa la property del modelo
+        if user:
+            return {
+                'id': str(user.id),
+                'correo': user.correo,
+                'nombre_completo': user.get_full_name()
+            }
+        return None
     
     def get_time_since(self, obj):
         """Tiempo transcurrido desde la creación."""
@@ -1399,17 +1398,29 @@ class NotificationListSerializer(serializers.ModelSerializer):
 class NotificationDetailSerializer(serializers.ModelSerializer):
     """Serializer detallado para notificaciones."""
     
-    user = UserDetailSerializer(read_only=True)
+    user = serializers.SerializerMethodField()  # Property, no campo del modelo
     time_since = serializers.SerializerMethodField()
     
     class Meta:
         model = Notification
         fields = [
-            'id', 'user', 'tipo', 'titulo', 'mensaje', 'leida', 'fecha_lectura',
+            'id', 'user_id', 'user', 'tipo', 'titulo', 'mensaje', 'leida', 'fecha_lectura',
             'accion_url', 'time_since',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user_id', 'created_at', 'updated_at']
+    
+    def get_user(self, obj):
+        """Obtiene el usuario mediante la property."""
+        user = obj.user
+        if user:
+            return {
+                'id': str(user.id),
+                'correo': user.correo,
+                'nombre_completo': user.get_full_name(),
+                'rol': user.rol_id.nombre if user.rol_id else None
+            }
+        return None
     
     def get_time_since(self, obj):
         """Tiempo transcurrido."""
@@ -1419,8 +1430,6 @@ class NotificationDetailSerializer(serializers.ModelSerializer):
 
 class NotificationCreateSerializer(serializers.ModelSerializer):
     """Serializer para crear notificaciones."""
-    
-    user_id = serializers.UUIDField(write_only=True)
     
     class Meta:
         model = Notification
@@ -1437,12 +1446,8 @@ class NotificationCreateSerializer(serializers.ModelSerializer):
         return value
     
     def create(self, validated_data):
-        """Crear notificación."""
-        user_id = validated_data.pop('user_id')
-        user = User.objects.get(id=user_id)
-        
+        """Crear notificación (user_id ya está en validated_data)."""
         notification = Notification.objects.create(
-            user=user,
             leida=False,
             **validated_data
         )
@@ -1910,8 +1915,8 @@ class PracticeStatusHistoryDetailSerializer(serializers.ModelSerializer):
         return {
             'id': str(obj.practice.id),
             'titulo': obj.practice.titulo,
-            'estudiante': obj.practice.student.user.get_full_name(),
-            'status_actual': obj.practice.status
+            'estudiante': obj.practice.practicante.usuario.get_full_name(),
+            'status_actual': obj.practice.estado
         }
     
     def get_responsable_detail(self, obj):

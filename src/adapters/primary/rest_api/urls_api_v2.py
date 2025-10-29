@@ -28,7 +28,7 @@ from src.adapters.primary.rest_api.viewsets import (
 # Avatar ViewSet
 from src.adapters.primary.rest_api.avatars.viewset import AvatarViewSet
 
-# Security ViewSets (RBAC)
+# Security ViewSets (RBAC) - Tablas permissions, roles, role_permissions, user_permissions existen en BD
 from src.adapters.primary.rest_api.roles.viewset import RoleViewSet
 from src.adapters.primary.rest_api.permissions.viewset import PermissionViewSet
 from src.adapters.primary.rest_api.user_permissions.viewset import UserPermissionViewSet

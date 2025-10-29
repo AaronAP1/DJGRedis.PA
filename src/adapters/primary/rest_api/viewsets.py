@@ -87,6 +87,7 @@ from src.infrastructure.security.permissions import (
     # Notification permissions
     CanViewNotification,
 )
+from src.infrastructure.security.permission_helpers import get_user_role
 
 User = get_user_model()
 
@@ -251,8 +252,8 @@ class UserViewSet(viewsets.ModelViewSet):
         permissions_data = []
         
         # Permisos del rol (si tiene role_obj)
-        if hasattr(user, 'role_obj') and user.role_obj:
-            role_permissions = user.role_obj.permissions.filter(is_active=True)
+        if hasattr(user, 'rol_id') and user.rol_id:
+            role_permissions = user.rol_id.permissions.filter(is_active=True)
             for perm in role_permissions:
                 permissions_data.append({
                     'code': perm.code,
@@ -260,7 +261,7 @@ class UserViewSet(viewsets.ModelViewSet):
                     'description': perm.description,
                     'module': perm.module,
                     'source': 'role',
-                    'role': user.role_obj.name
+                    'role': user.rol_id.nombre
                 })
         
         # Permisos específicos del usuario (overrides)
@@ -292,7 +293,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 'id': user.id,
                 'email': user.email,
                 'full_name': user.get_full_name(),
-                'role': user.role
+                'role': get_user_role(user)
             },
             'permissions_count': len(permissions_data),
             'permissions': permissions_data
@@ -307,7 +308,7 @@ class UserViewSet(viewsets.ModelViewSet):
         Returns:
             Response con lista de avatares del rol del usuario.
         """
-        user_role = request.user.role
+        user_role = get_user_role(request.user)
         
         avatars = Avatar.objects.filter(
             role=user_role,
@@ -341,8 +342,8 @@ class UserViewSet(viewsets.ModelViewSet):
         permissions_codes = set()
         
         # Permisos del rol (si tiene role_obj)
-        if hasattr(user, 'role_obj') and user.role_obj:
-            role_permissions = user.role_obj.permissions.filter(is_active=True)
+        if hasattr(user, 'rol_id') and user.rol_id:
+            role_permissions = user.rol_id.permissions.filter(is_active=True)
             for perm in role_permissions:
                 permissions_codes.add(perm.code)
                 permissions_data.append({
@@ -351,7 +352,7 @@ class UserViewSet(viewsets.ModelViewSet):
                     'description': perm.description,
                     'module': perm.module,
                     'source': 'role',
-                    'role': user.role_obj.name,
+                    'role': user.rol_id.nombre,
                     'status': 'active'
                 })
         
@@ -403,7 +404,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 'id': user.id,
                 'email': user.email,
                 'full_name': user.get_full_name(),
-                'role': user.role
+                'role': get_user_role(user)
             },
             'effective_permissions_count': len(effective_permissions),
             'permissions': effective_permissions,
@@ -467,19 +468,19 @@ class StudentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filtrar estudiantes según el rol."""
         user = self.request.user
-        queryset = Student.objects.select_related('user').all()
+        queryset = Student.objects.select_related('usuario').all()
         
         # Practicante solo ve su propio perfil
         if user.is_practicante:
-            return queryset.filter(user=user)
+            return queryset.filter(usuario=user)
         
         # Supervisores ven estudiantes de sus prácticas
         if user.is_supervisor:
             try:
-                supervisor = Supervisor.objects.get(user=user)
+                supervisor = Supervisor.objects.get(usuario=user)
                 practice_student_ids = Practice.objects.filter(
                     supervisor=supervisor
-                ).values_list('student_id', flat=True)
+                ).values_list('practicante_id', flat=True)
                 return queryset.filter(id__in=practice_student_ids)
             except Supervisor.DoesNotExist:
                 return queryset.none()
@@ -548,14 +549,14 @@ class StudentViewSet(viewsets.ModelViewSet):
         Retorna las prácticas del estudiante.
         """
         student = self.get_object()
-        practices = Practice.objects.filter(student=student).select_related(
-            'company', 'supervisor', 'supervisor__user'
+        practices = Practice.objects.filter(practicante=student).select_related(
+            'empresa', 'supervisor', 'supervisor__usuario'
         )
         
         # Aplicar filtros opcionales
         status_filter = request.query_params.get('status')
         if status_filter:
-            practices = practices.filter(status=status_filter)
+            practices = practices.filter(estado=status_filter)
         
         serializer = PracticeListSerializer(practices, many=True)
         return Response(serializer.data)
@@ -628,14 +629,14 @@ class CompanyViewSet(viewsets.ModelViewSet):
         # Supervisores solo ven su empresa
         if user.is_supervisor:
             try:
-                supervisor = Supervisor.objects.get(user=user)
-                return queryset.filter(id=supervisor.company_id)
+                supervisor = Supervisor.objects.get(usuario=user)
+                return queryset.filter(id=supervisor.empresa_id)
             except Supervisor.DoesNotExist:
                 return queryset.none()
         
         # Practicantes ven empresas activas
         if user.is_practicante:
-            return queryset.filter(status='ACTIVE')
+            return queryset.filter(estado='ACTIVE')
         
         # Staff ve todas
         return queryset
@@ -737,13 +738,13 @@ class CompanyViewSet(viewsets.ModelViewSet):
         Retorna las prácticas de la empresa.
         """
         company = self.get_object()
-        practices = Practice.objects.filter(company=company).select_related(
-            'student', 'student__user', 'supervisor'
+        practices = Practice.objects.filter(empresa=company).select_related(
+            'practicante', 'practicante__usuario', 'supervisor'
         )
         
         status_filter = request.query_params.get('status')
         if status_filter:
-            practices = practices.filter(status=status_filter)
+            practices = practices.filter(estado=status_filter)
         
         serializer = PracticeListSerializer(practices, many=True)
         return Response(serializer.data)
@@ -755,7 +756,7 @@ class CompanyViewSet(viewsets.ModelViewSet):
         Retorna los supervisores de la empresa.
         """
         company = self.get_object()
-        supervisors = Supervisor.objects.filter(company=company).select_related('user')
+        supervisors = Supervisor.objects.filter(empresa=company).select_related('usuario')
         
         serializer = SupervisorListSerializer(supervisors, many=True)
         return Response(serializer.data)
@@ -841,12 +842,12 @@ class SupervisorViewSet(viewsets.ModelViewSet):
         """
         supervisor = self.get_object()
         practices = Practice.objects.filter(supervisor=supervisor).select_related(
-            'student', 'student__user', 'company'
+            'practicante', 'practicante__usuario', 'empresa'
         )
         
         status_filter = request.query_params.get('status')
         if status_filter:
-            practices = practices.filter(status=status_filter)
+            practices = practices.filter(estado=status_filter)
         
         serializer = PracticeListSerializer(practices, many=True)
         return Response(serializer.data)
@@ -877,7 +878,8 @@ class PracticeViewSet(viewsets.ModelViewSet):
     """
     
     queryset = Practice.objects.select_related(
-        'practicante', 'practicante__usuario', 'empresa', 'supervisor', 'supervisor__usuario'
+        'practicante', 'practicante__usuario', 'empresa', 'supervisor', 'supervisor__usuario',
+        'coordinador', 'secretaria'
     ).all()
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     search_fields = [
@@ -923,21 +925,21 @@ class PracticeViewSet(viewsets.ModelViewSet):
         """Filtrar prácticas según el rol."""
         user = self.request.user
         queryset = Practice.objects.select_related(
-            'student', 'student__user', 'company', 'supervisor', 'supervisor__user'
+            'practicante', 'practicante__usuario', 'empresa', 'supervisor', 'supervisor__usuario'
         ).all()
         
-        # Practicante solo ve sus prácticas
+        # Practicante ve solo sus prácticas
         if user.is_practicante:
             try:
-                student = Student.objects.get(user=user)
-                return queryset.filter(student=student)
+                student = Student.objects.get(usuario=user)
+                return queryset.filter(practicante=student)
             except Student.DoesNotExist:
                 return queryset.none()
         
         # Supervisor ve las prácticas que supervisa
         if user.is_supervisor:
             try:
-                supervisor = Supervisor.objects.get(user=user)
+                supervisor = Supervisor.objects.get(usuario=user)
                 return queryset.filter(supervisor=supervisor)
             except Supervisor.DoesNotExist:
                 return queryset.none()
@@ -1299,8 +1301,8 @@ class DocumentViewSet(viewsets.ModelViewSet):
     """
     
     queryset = Document.objects.select_related(
-        'practice', 'practice__student', 'practice__company',
-        'uploaded_by', 'approved_by'
+        'practice', 'practice__practicante', 'practice__empresa',
+        'subido_por', 'aprobado_por'
     ).all()
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     search_fields = ['nombre_archivo', 'tipo']
@@ -1339,21 +1341,21 @@ class DocumentViewSet(viewsets.ModelViewSet):
         """Filtrar documentos según el rol."""
         user = self.request.user
         queryset = Document.objects.select_related(
-            'practice', 'practice__student', 'uploaded_by'
+            'practice', 'practice__practicante', 'subido_por'
         ).all()
         
         # Practicante ve documentos de sus prácticas
         if user.is_practicante:
             try:
-                student = Student.objects.get(user=user)
-                return queryset.filter(practice__student=student)
+                student = Student.objects.get(usuario=user)
+                return queryset.filter(practice__practicante=student)
             except Student.DoesNotExist:
                 return queryset.none()
         
         # Supervisor ve documentos de prácticas que supervisa
         if user.is_supervisor:
             try:
-                supervisor = Supervisor.objects.get(user=user)
+                supervisor = Supervisor.objects.get(usuario=user)
                 return queryset.filter(practice__supervisor=supervisor)
             except Supervisor.DoesNotExist:
                 return queryset.none()
@@ -1365,7 +1367,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
         """Solo el uploader o admin pueden eliminar."""
         user = self.request.user
         
-        if instance.uploaded_by != user and not user.is_administrador:
+        if instance.subido_por != user and not user.is_administrador:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Solo puedes eliminar tus propios documentos')
         
@@ -1391,7 +1393,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
             )
         
         document.aprobado = True
-        document.approved_by = request.user
+        document.aprobado_por = request.user
         document.fecha_aprobacion = datetime.now()
         document.observaciones = request.data.get('observaciones', '')
         document.save()
@@ -1501,7 +1503,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
     - GET /api/notifications/unread_count/ - Contador de no leídas
     """
     
-    queryset = Notification.objects.select_related('user').all()
+    queryset = Notification.objects.all()  # Sin select_related porque user es property
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     search_fields = ['titulo', 'mensaje']
     filterset_fields = ['tipo', 'leida']
@@ -1530,14 +1532,12 @@ class NotificationViewSet(viewsets.ModelViewSet):
         return [permission() for permission in permission_classes]
     
     def get_queryset(self):
-        """Solo ver notificaciones propias."""
-        return Notification.objects.filter(user=self.request.user).select_related(
-            'related_practice', 'related_document'
-        )
+        """Solo ver notificaciones propias (filtrar por user_id)."""
+        return Notification.objects.filter(user_id=self.request.user.id)
     
     def perform_destroy(self, instance):
         """Solo el usuario puede eliminar sus notificaciones."""
-        if instance.user != self.request.user:
+        if instance.user_id != self.request.user.id:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Solo puedes eliminar tus propias notificaciones')
         
@@ -1551,14 +1551,14 @@ class NotificationViewSet(viewsets.ModelViewSet):
         """
         notification = self.get_object()
         
-        if notification.leido:
+        if notification.leida:
             return Response(
                 {'message': 'La notificación ya estaba marcada como leída'},
                 status=status.HTTP_200_OK
             )
         
-        notification.leido = True
-        notification.fecha_leido = datetime.now()
+        notification.leida = True
+        notification.fecha_lectura = datetime.now()
         notification.save()
         
         return Response(
@@ -1573,11 +1573,11 @@ class NotificationViewSet(viewsets.ModelViewSet):
         Marcar todas las notificaciones como leídas.
         """
         updated = Notification.objects.filter(
-            user=request.user,
-            leido=False
+            user_id=request.user.id,
+            leida=False
         ).update(
-            leido=True,
-            fecha_leido=datetime.now()
+            leida=True,
+            fecha_lectura=datetime.now()
         )
         
         return Response(
@@ -1591,7 +1591,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
         GET /api/notifications/unread/
         Retorna solo notificaciones no leídas.
         """
-        queryset = self.get_queryset().filter(leido=False)
+        queryset = self.get_queryset().filter(leida=False)
         
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -1607,7 +1607,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
         GET /api/notifications/unread_count/
         Retorna el contador de notificaciones no leídas.
         """
-        count = self.get_queryset().filter(leido=False).count()
+        count = self.get_queryset().filter(leida=False).count()
         
         return Response({'unread_count': count}, status=status.HTTP_200_OK)
 
@@ -1819,15 +1819,15 @@ class PracticeEvaluationViewSet(viewsets.ModelViewSet):
         user = self.request.user
         
         # Practicante: solo sus evaluaciones
-        if user.role == 'PRACTICANTE':
-            return queryset.filter(practice__student__user=user)
+        if get_user_role(user) == 'PRACTICANTE':
+            return queryset.filter(practica__practicante__usuario=user)
         
         # Supervisor: solo evaluaciones que él ha creado
-        elif user.role == 'SUPERVISOR':
-            return queryset.filter(evaluator=user)
+        elif get_user_role(user) == 'SUPERVISOR':
+            return queryset.filter(evaluador=user)
         
         # Coordinador y Secretaria: todas las evaluaciones
-        elif user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
+        elif get_user_role(user) in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
             return queryset
         
         return queryset.none()
@@ -1844,10 +1844,10 @@ class PracticeEvaluationViewSet(viewsets.ModelViewSet):
         """
         user = request.user
         
-        if user.role == 'PRACTICANTE':
-            queryset = self.get_queryset().filter(practice__student__user=user)
-        elif user.role == 'SUPERVISOR':
-            queryset = self.get_queryset().filter(evaluator=user)
+        if get_user_role(user) == 'PRACTICANTE':
+            queryset = self.get_queryset().filter(practica__practicante__usuario=user)
+        elif get_user_role(user) == 'SUPERVISOR':
+            queryset = self.get_queryset().filter(evaluador=user)
         else:
             return Response(
                 {'error': 'Acción no permitida para este rol'},
@@ -1950,15 +1950,15 @@ class PracticeStatusHistoryViewSet(viewsets.ReadOnlyModelViewSet):
         user = self.request.user
         
         # Practicante: solo historial de sus prácticas
-        if user.role == 'PRACTICANTE':
-            return queryset.filter(practice__student__user=user)
+        if get_user_role(user) == 'PRACTICANTE':
+            return queryset.filter(practica__practicante__usuario=user)
         
         # Supervisor: historial de prácticas donde es supervisor
-        elif user.role == 'SUPERVISOR':
-            return queryset.filter(practice__supervisor__user=user)
+        elif get_user_role(user) == 'SUPERVISOR':
+            return queryset.filter(practica__supervisor__usuario=user)
         
         # Coordinador, Secretaria, Admin: todo el historial
-        elif user.role in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
+        elif get_user_role(user) in ['COORDINADOR', 'SECRETARIA', 'ADMINISTRADOR']:
             return queryset
         
         return queryset.none()

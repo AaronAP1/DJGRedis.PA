@@ -801,7 +801,7 @@ class Document(models.Model):
 
 
 class Notification(models.Model):
-    """Modelo de Notificación."""
+    """Modelo de Notificación - Mapea a tabla `notifications`."""
     
     TIPO_CHOICES = [
         ('INFO', 'Información'),
@@ -810,34 +810,47 @@ class Notification(models.Model):
         ('ERROR', 'Error'),
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
-    titulo = models.CharField('Título', max_length=200)
-    mensaje = models.TextField('Mensaje')
-    tipo = models.CharField('Tipo', max_length=10, choices=TIPO_CHOICES, default='INFO')
-    leida = models.BooleanField('Leída', default=False)
-    fecha_lectura = models.DateTimeField('Fecha de lectura', blank=True, null=True)
-    accion_url = models.URLField('URL de acción', blank=True, null=True)
-    created_at = models.DateTimeField('Creado en', auto_now_add=True)
-    updated_at = models.DateTimeField('Actualizado en', auto_now=True)
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False, db_column='id')
+    user_id = models.UUIDField('ID de Usuario', db_column='user_id')  # UUID en tabla notifications
+    titulo = models.CharField('Título', max_length=200, db_column='titulo')
+    mensaje = models.TextField('Mensaje', db_column='mensaje')
+    tipo = models.CharField('Tipo', max_length=10, choices=TIPO_CHOICES, default='INFO', db_column='tipo')
+    leida = models.BooleanField('Leída', default=False, db_column='leida')
+    fecha_lectura = models.DateTimeField('Fecha de lectura', blank=True, null=True, db_column='fecha_lectura')
+    accion_url = models.URLField('URL de acción', blank=True, null=True, db_column='accion_url')
+    created_at = models.DateTimeField('Creado en', auto_now_add=True, db_column='created_at')
+    updated_at = models.DateTimeField('Actualizado en', auto_now=True, db_column='updated_at')
 
     class Meta:
-        db_table = 'notifications'
+        db_table = 'notifications'  # Tabla REAL en PostgreSQL
         verbose_name = 'Notificación'
         verbose_name_plural = 'Notificaciones'
         ordering = ['-created_at']
+        managed = False  # Django NO gestiona esta tabla
         indexes = [
-            models.Index(fields=['user', 'leida']),
+            models.Index(fields=['user_id', 'leida']),
             models.Index(fields=['created_at']),
         ]
 
     def __str__(self):
-        return f"{self.titulo} - {self.user.get_full_name()}"
+        return f"{self.titulo} - Usuario {self.user_id}"
 
     @property
     def es_importante(self):
         """Verifica si la notificación es importante."""
         return self.tipo in ['WARNING', 'ERROR']
+    
+    @property
+    def user(self):
+        """Obtiene el usuario relacionado (lazy loading)."""
+        if not hasattr(self, '_user_cache'):
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            try:
+                self._user_cache = User.objects.get(id=self.user_id)
+            except User.DoesNotExist:
+                self._user_cache = None
+        return self._user_cache
 
 
 # OpaqueSession y SessionActivity eliminados - Sistema JWT PURO
@@ -905,8 +918,6 @@ class Role(models.Model):
                                help_text='Estructura JSON con permisos del rol. Ej: {"practices": ["view", "create"], "students": ["view"]}')
     
     fecha_creacion = models.DateTimeField('Fecha Creación', auto_now_add=True, db_column='fecha_creacion')
-    # Compatibilidad con código legacy que espera una relación M2M a Permission
-    permissions = models.ManyToManyField('Permission', through='RolePermission', related_name='roles', blank=True)
     
     class Meta:
         db_table = 'upeu_rol'  # Tabla REAL en PostgreSQL
@@ -930,6 +941,11 @@ class Role(models.Model):
     @property
     def name(self):
         return self.nombre
+    
+    @property
+    def permissions(self):
+        """Retorna permisos desde el JSONB (no hay tabla relacional para upeu_rol)."""
+        return []  # El sistema legacy usa permisos JSONB, no tabla Permission
     
     def get_permissions_codes(self):
         """Obtiene lista de códigos de permisos del rol desde JSONB."""
@@ -1313,17 +1329,17 @@ try:
     # Se definen como managed=False para no obligar a migraciones.
     # ------------------------------------------------------------------
     class Permission(models.Model):
-        """Modelo mínimo que mapea a `upeu_permiso` si existe."""
+        """Modelo que mapea a tabla `permissions` (tabla real en BD)."""
         id = models.AutoField(primary_key=True, db_column='id')
-        codigo = models.CharField('Código', max_length=100, unique=True, db_column='codigo')
-        nombre = models.CharField('Nombre', max_length=200, db_column='nombre')
-        descripcion = models.TextField('Descripción', blank=True, null=True, db_column='descripcion')
+        codigo = models.CharField('Código', max_length=100, unique=True, db_column='code')
+        nombre = models.CharField('Nombre', max_length=200, db_column='name')
+        descripcion = models.TextField('Descripción', blank=True, null=True, db_column='description')
         module = models.CharField('Módulo', max_length=100, blank=True, null=True, db_column='module')
         is_active = models.BooleanField('Activo', default=True, db_column='is_active')
-        created_at = models.DateTimeField('Creado en', blank=True, null=True, db_column='created_at')
+        created_at = models.DateTimeField('Creado en', auto_now_add=True, db_column='created_at')
 
         class Meta:
-            db_table = 'upeu_permiso'
+            db_table = 'permissions'  # Tabla REAL en PostgreSQL
             verbose_name = 'Permiso'
             verbose_name_plural = 'Permisos'
             managed = False
@@ -1348,40 +1364,99 @@ try:
             return self.descripcion
 
 
-    class RolePermission(models.Model):
-        """Relación mínima entre roles y permisos (upeu_rol_permiso)."""
-        id = models.AutoField(primary_key=True, db_column='id')
-        rol = models.ForeignKey('Role', on_delete=models.CASCADE, db_column='rol_id', related_name='role_perm_map')
-        permiso = models.ForeignKey('Permission', on_delete=models.CASCADE, db_column='permiso_id', related_name='role_perm_map')
-        granted_at = models.DateTimeField('Otorgado en', blank=True, null=True, db_column='granted_at')
+    # ===== SISTEMA NUEVO: ROLES Y PERMISOS CON UUID =====
+
+    class RoleNew(models.Model):
+        """
+        Sistema NUEVO de roles - Tabla 'roles' con UUIDs.
+        Roles dinámicos con permisos relacionales (tabla role_permissions).
+        """
+        id = models.UUIDField(primary_key=True, default=uuid4, editable=False, db_column='id')
+        code = models.CharField('Código', max_length=50, unique=True, db_column='code')
+        name = models.CharField('Nombre', max_length=100, db_column='name')
+        description = models.TextField('Descripción', blank=True, null=True, db_column='description')
+        is_active = models.BooleanField('Activo', default=True, db_column='is_active')
+        is_system = models.BooleanField('Es del sistema', default=False, db_column='is_system')
+        created_at = models.DateTimeField('Creado en', auto_now_add=True, db_column='created_at')
+        updated_at = models.DateTimeField('Actualizado en', auto_now=True, db_column='updated_at')
+        
+        permissions = models.ManyToManyField('Permission', through='RolePermission', related_name='new_roles')
 
         class Meta:
-            db_table = 'upeu_rol_permiso'
+            db_table = 'roles'
+            verbose_name = 'Rol Nuevo'
+            verbose_name_plural = 'Roles Nuevos'
+            ordering = ['name']
+            managed = False
+
+        def __str__(self):
+            return f"{self.code} - {self.name}"
+
+
+    class RolePermission(models.Model):
+        """Relación entre roles nuevos y permisos (tabla role_permissions con UUIDs)."""
+        id = models.UUIDField(primary_key=True, default=uuid4, editable=False, db_column='id')
+        rol = models.ForeignKey('RoleNew', on_delete=models.CASCADE, db_column='role_id', related_name='role_perm_map')
+        permiso = models.ForeignKey('Permission', on_delete=models.CASCADE, db_column='permission_id', related_name='role_perm_map')
+        granted_at = models.DateTimeField('Otorgado en', auto_now_add=True, db_column='granted_at')
+        granted_by_id = models.UUIDField('Otorgado por', blank=True, null=True, db_column='granted_by_id')
+
+        class Meta:
+            db_table = 'role_permissions'  # Tabla REAL en PostgreSQL
             verbose_name = 'Permiso de Rol'
             verbose_name_plural = 'Permisos de Roles'
             managed = False
             unique_together = [['rol', 'permiso']]
 
         def __str__(self):
-            return f"{self.rol} - {self.permiso.codigo}"
+            return f"{self.rol.code} - {self.permiso.code}"
+
+        # Compatibilidad con código legacy
+        @property
+        def role(self):
+            return self.rol
+        
+        @property
+        def permission(self):
+            return self.permiso
 
 
     class UserPermission(models.Model):
-        """Permisos personalizados por usuario (upeu_usuario_permiso)."""
-        id = models.AutoField(primary_key=True, db_column='id')
-        usuario = models.ForeignKey('User', on_delete=models.CASCADE, db_column='usuario_id', related_name='user_perm_map')
-        permiso = models.ForeignKey('Permission', on_delete=models.CASCADE, db_column='permiso_id', related_name='user_perm_map')
-        permiso_tipo = models.CharField('Tipo', max_length=10, blank=True, null=True, db_column='permiso_tipo')
+        """Permisos personalizados por usuario (tabla user_permissions con UUIDs)."""
+        id = models.UUIDField(primary_key=True, default=uuid4, editable=False, db_column='id')
+        usuario = models.ForeignKey('User', on_delete=models.CASCADE, db_column='user_id', related_name='user_perm_map')
+        permiso = models.ForeignKey('Permission', on_delete=models.CASCADE, db_column='permission_id', related_name='user_perm_map')
+        permiso_tipo = models.CharField('Tipo', max_length=10, blank=True, null=True, db_column='permission_type')
         granted_at = models.DateTimeField('Otorgado en', blank=True, null=True, db_column='granted_at')
+        expires_at = models.DateTimeField('Expira en', blank=True, null=True, db_column='expires_at')
+        otorgado_por = models.ForeignKey('User', on_delete=models.SET_NULL, blank=True, null=True, 
+                                        db_column='granted_by_id', related_name='permissions_granted')
 
         class Meta:
-            db_table = 'upeu_usuario_permiso'
+            db_table = 'user_permissions'  # Tabla REAL en PostgreSQL
             verbose_name = 'Permiso de Usuario'
             verbose_name_plural = 'Permisos de Usuarios'
             managed = False
 
         def __str__(self):
-            return f"{self.usuario} - {self.permiso.codigo} ({self.permiso_tipo})"
+            return f"{self.usuario.correo} - {self.permiso.code} ({self.permiso_tipo})"
+        
+        # Properties para compatibilidad
+        @property
+        def permission_type(self):
+            return self.permiso_tipo
+        
+        @property
+        def user(self):
+            return self.usuario
+        
+        @property
+        def permission(self):
+            return self.permiso
+        
+        @property
+        def granted_by(self):
+            return self.otorgado_por
 except Exception:
     Supervisor = None
 
