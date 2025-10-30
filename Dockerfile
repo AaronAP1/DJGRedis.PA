@@ -29,16 +29,22 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar código de la aplicación
 COPY . .
 
-# Crear usuario no-root
+# Copiar script de inicio y dar permisos
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
+# Crear directorios necesarios antes de cambiar usuario
+RUN mkdir -p logs media staticfiles
+
+# Crear usuario no-root y cambiar permisos
 RUN adduser --disabled-password --gecos '' appuser \
     && chown -R appuser:appuser /app
-USER appuser
 
-# Crear directorios necesarios
-RUN mkdir -p logs media staticfiles
+# Cambiar a usuario no-root
+USER appuser
 
 # Exponer puerto
 EXPOSE 8000
 
-# Comando por defecto
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+# Usar script de inicio
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

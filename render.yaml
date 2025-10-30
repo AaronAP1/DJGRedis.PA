@@ -12,12 +12,9 @@ services:
     runtime: python
     region: oregon
     plan: starter
-    buildCommand: |
-      pip install --upgrade pip
-      pip install -r requirements/production.txt
-      python manage.py collectstatic --no-input
-      python manage.py migrate --no-input
-    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 config.wsgi:application
+    # Build usando Dockerfile (más confiable)
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /api/health/
     
     envVars:
