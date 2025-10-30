@@ -1,0 +1,161 @@
+# =====================================================
+# RENDER BLUEPRINT - Sistema PPP UPeU con Azure DBs
+# Configuración para usar Azure PostgreSQL, Redis y Cosmos DB
+# =====================================================
+# IMPORTANTE: Este archivo usa bases de datos de Azure
+# Las credenciales DEBEN configurarse en Render Dashboard
+# =====================================================
+
+services:
+  # =====================================================
+  # DJANGO WEB APPLICATION - USANDO AZURE DATABASES
+  # =====================================================
+  - type: web
+    name: upeu-ppp-backend-azure
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      python manage.py collectstatic --no-input
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 600 config.wsgi:application
+    
+    envVars:
+      # Django Core
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      
+      - key: DEBUG
+        value: false
+      
+      - key: SECRET_KEY
+        generateValue: true
+      
+      - key: ALLOWED_HOSTS
+        value: .onrender.com
+      
+      # =====================================================
+      # AZURE POSTGRESQL - CONFIGURAR EN RENDER DASHBOARD
+      # =====================================================
+      # Ir a: Render Dashboard → Environment → Add Secret
+      
+      - key: DATABASE_URL
+        sync: false  # ⚠️ CONFIGURAR MANUALMENTE: postgresql://USER:PASS@HOST:5432/DB?sslmode=require
+      
+      - key: DB_HOST
+        sync: false  # ⚠️ CONFIGURAR: tu-server.postgres.database.azure.com
+      
+      - key: DB_NAME
+        value: upeu_ppp
+      
+      - key: DB_USER
+        sync: false  # ⚠️ CONFIGURAR MANUALMENTE
+      
+      - key: DB_PASSWORD
+        sync: false  # ⚠️ CONFIGURAR MANUALMENTE (marcar como Secret)
+      
+      - key: DB_PORT
+        value: 5432
+      
+      # =====================================================
+      # AZURE REDIS CACHE - CONFIGURAR EN RENDER DASHBOARD
+      # =====================================================
+      
+      - key: REDIS_URL
+        sync: false  # ⚠️ CONFIGURAR: rediss://:PASSWORD@HOST:6380/0
+      
+      - key: REDIS_HOST
+        sync: false  # ⚠️ CONFIGURAR: tu-cache.redis.cache.windows.net
+      
+      - key: REDIS_PORT
+        value: 6380
+      
+      - key: REDIS_PASSWORD
+        sync: false  # ⚠️ CONFIGURAR MANUALMENTE (marcar como Secret)
+      
+      - key: USE_REDIS_CACHE
+        value: true
+      
+      # =====================================================
+      # AZURE COSMOS DB - CONFIGURAR EN RENDER DASHBOARD
+      # =====================================================
+      
+      - key: MONGODB_URI
+        sync: false  # ⚠️ CONFIGURAR: mongodb://account:KEY@account.mongo.cosmos.azure.com:10255/?ssl=true...
+      
+      - key: MONGODB_DB_NAME
+        value: upeu_documents
+      
+      # =====================================================
+      # CELERY CONFIGURATION
+      # =====================================================
+      
+      - key: CELERY_BROKER_URL
+        sync: false  # ⚠️ Mismo valor que REDIS_URL
+      
+      - key: CELERY_RESULT_BACKEND
+        sync: false  # ⚠️ Mismo valor que REDIS_URL
+      
+      - key: CELERY_TASK_ALWAYS_EAGER
+        value: true  # Ejecutar tareas síncronamente (no usar worker en plan free)
+      
+      - key: CELERY_TIMEZONE
+        value: America/Lima
+      
+      # =====================================================
+      # SECURITY & CONFIGURATION
+      # =====================================================
+      
+      - key: ALLOWED_EMAIL_DOMAINS
+        value: upeu.edu.pe
+      
+      - key: AXES_FAILURE_LIMIT
+        value: 5
+      
+      - key: SESSION_COOKIE_SECURE
+        value: true
+      
+      - key: CSRF_COOKIE_SECURE
+        value: true
+      
+      - key: SECURE_SSL_REDIRECT
+        value: true
+      
+      - key: CORS_ALLOW_CREDENTIALS
+        value: true
+
+# =====================================================
+# INSTRUCCIONES DE CONFIGURACIÓN
+# =====================================================
+# 
+# 1. Subir este archivo a tu repo
+# 2. Conectar repo en Render.com
+# 3. Configurar variables marcadas con sync: false en Render Dashboard:
+#
+#    Ir a: Dashboard → Tu servicio → Environment → Add Environment Variable
+#
+#    Variables a configurar:
+#    - DATABASE_URL
+#    - DB_HOST
+#    - DB_USER
+#    - DB_PASSWORD (marcar como Secret)
+#    - REDIS_URL
+#    - REDIS_HOST
+#    - REDIS_PASSWORD (marcar como Secret)
+#    - MONGODB_URI (marcar como Secret)
+#    - CELERY_BROKER_URL (mismo que REDIS_URL)
+#    - CELERY_RESULT_BACKEND (mismo que REDIS_URL)
+#
+# 4. Obtener credenciales desde Azure:
+#
+#    PostgreSQL:
+#    az postgres flexible-server show --name TU_SERVER --resource-group TU_RG
+#
+#    Redis:
+#    az redis list-keys --name TU_REDIS --resource-group TU_RG
+#
+#    Cosmos DB:
+#    az cosmosdb keys list --name TU_COSMOS --resource-group TU_RG --type connection-strings
+#
+# =====================================================

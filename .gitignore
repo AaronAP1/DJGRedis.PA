@@ -81,6 +81,12 @@ npm-debug.log*
 # Backup files
 *.bak
 
+# ZIP files (may contain logs/credentials)
+*.zip
+deployment-logs.zip
+deploy-manual.zip
+latest-logs.zip
+
 # Redis dump
 dump.rdb
 
