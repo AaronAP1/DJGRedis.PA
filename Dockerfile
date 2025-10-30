@@ -21,10 +21,10 @@ RUN apt-get update \
 WORKDIR /app
 
 # Copiar archivos de requisitos
-COPY requirements/ requirements/
+COPY requirements.txt .
 
 # Instalar dependencias de Python
-RUN pip install --no-cache-dir -r requirements/minimal.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiar código de la aplicación
 COPY . .
