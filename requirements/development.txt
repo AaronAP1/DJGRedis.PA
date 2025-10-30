@@ -35,7 +35,8 @@ celery==5.3.6
 celery[redis]==5.3.6
 
 # API Docs
-drf-spectacular==0.27.2
+drf-spectacular>=0.28.0
+django-scalar==0.2.0  # Scalar UI - Moderna interfaz para OpenAPI
 
 # Development tools 
 django-debug-toolbar==4.4.6

@@ -50,6 +50,7 @@ THIRD_PARTY_APPS = [
     'django_extensions',
     'axes',
     'drf_spectacular',
+    'django_scalar',  
 ]
 
 LOCAL_APPS = [

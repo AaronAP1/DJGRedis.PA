@@ -25,6 +25,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
     SpectacularRedocView,
 )
+from django_scalar.views import scalar_viewer
 
 # API v1 Root - Punto de entrada con información del sistema
 def api_v1_root(request):
@@ -46,6 +47,7 @@ def api_v1_root(request):
         'architecture': 'Hexagonal (Clean Architecture)',
         'api_version': 'v1 (Legacy)',
         'documentation': {
+            'scalar': '/api/scalar/',  # 🚀 Documentación principal (Scalar UI)
             'swagger': '/api/docs/',
             'redoc': '/api/redoc/',
             'schema': '/api/schema/',
@@ -146,8 +148,8 @@ urlpatterns = [
     # ========================================================================
     # ROOT & ADMIN
     # ========================================================================
-    # Redirect root to API docs (avoid 404 at '/')
-    path('', RedirectView.as_view(url='/api/docs/', permanent=False), name='root'),
+    # Redirect root to Scalar API docs (modern UI by default)
+    path('', RedirectView.as_view(url='/api/scalar/', permanent=False), name='root'),
     path('admin/', admin.site.urls),
     
     # ========================================================================
@@ -172,7 +174,7 @@ urlpatterns = [
     path('graphql/', include('src.adapters.primary.graphql_api.urls')),
     
     # ========================================================================
-    # API DOCUMENTATION (OpenAPI 3.0 / Swagger / ReDoc)
+    # API DOCUMENTATION (OpenAPI 3.0 / Scalar / Swagger / ReDoc)
     # ========================================================================
     # 📄 OpenAPI Schema (JSON/YAML)
     # Esquema OpenAPI 3.0 en formato JSON que describe todos los endpoints REST
@@ -185,7 +187,19 @@ urlpatterns = [
          )), 
          name='schema'),
     
-    # 📚 Swagger UI (Documentación Interactiva)
+    # 🚀 Scalar UI (Documentación Principal - Por Defecto)
+    # Interfaz moderna y rápida para explorar la API
+    # Características:
+    # - Diseño moderno y minimalista
+    # - Rendimiento superior a Swagger UI
+    # - Dark mode nativo
+    # - Autenticación JWT integrada
+    # - Try it out mejorado
+    # - Mejor búsqueda y navegación
+    # URL: http://localhost:8000/api/scalar/
+    path('api/scalar/', scalar_viewer, name='scalar-ui'),
+    
+    # 📚 Swagger UI (Documentación Interactiva - Alternativa)
     # Interfaz interactiva para explorar y probar los endpoints de la API
     # Características:
     # - Autenticación JWT integrada (botón "Authorize")
@@ -202,7 +216,7 @@ urlpatterns = [
          )), 
          name='swagger-ui'),
     
-    # 📖 ReDoc (Documentación Avanzada)
+    # 📖 ReDoc (Documentación Avanzada - Alternativa)
     # Documentación de API con diseño limpio y profesional
     # Características:
     # - Diseño responsive y navegación fluida
