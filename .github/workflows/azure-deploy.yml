@@ -53,11 +53,26 @@ jobs:
           -x "docs/*"
     
     - name: 🚀 Deploy to Azure Web App (Zip Deploy)
-      uses: azure/webapps-deploy@v2
-      with:
-        app-name: ${{ env.AZURE_WEBAPP_NAME }}
-        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-        package: deploy.zip
+      env:
+        PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+      run: |
+        # Extract credentials from publish profile
+        USERNAME=$(echo "$PUBLISH_PROFILE" | grep -oP 'userName="\$\K[^"]+' | head -1)
+        PASSWORD=$(echo "$PUBLISH_PROFILE" | grep -oP 'userPWD="\K[^"]+' | head -1)
+        
+        # Deploy using Kudu API
+        curl -X POST \
+          -u "$USERNAME:$PASSWORD" \
+          --data-binary @deploy.zip \
+          https://${{ env.AZURE_WEBAPP_NAME }}.scm.azurewebsites.net/api/zipdeploy \
+          -H "Content-Type: application/zip"
+        
+        echo "✅ Deployment completed!"
+    
+    - name: ⏳ Wait for deployment to complete
+      run: |
+        echo "Waiting for deployment to propagate..."
+        sleep 60
     
     - name: 🏥 Health Check
       run: |
