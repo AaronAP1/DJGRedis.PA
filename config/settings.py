@@ -25,7 +25,12 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-me-in-producti
 DEBUG = config('DEBUG', default=True, cast=bool)
 
 # Allowed hosts configuration
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS_RAW = config('ALLOWED_HOSTS', default='localhost,127.0.0.1')
+ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_RAW.split(',')]
+
+# Azure App Service specific
+if 'WEBSITE_HOSTNAME' in os.environ:
+    ALLOWED_HOSTS.append(os.environ['WEBSITE_HOSTNAME'])
 
 # Allowed email domains for user accounts
 ALLOWED_EMAIL_DOMAINS = [d.strip() for d in config('ALLOWED_EMAIL_DOMAINS', default='upeu.edu.pe').split(',')]
@@ -67,6 +72,7 @@ MIDDLEWARE = [
     'src.infrastructure.middleware.security_headers.SecurityHeadersMiddleware',
     'src.infrastructure.middleware.security_headers.XSSProtectionMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Static files en producción
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -487,3 +493,16 @@ SPECTACULAR_SETTINGS = {
     },
 }
 
+# =====================================================
+# STATIC FILES CONFIGURATION (Production)
+# =====================================================
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [BASE_DIR / 'static'] if (BASE_DIR / 'static').exists() else []
+
+# Whitenoise configuration for static files
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Media files
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'

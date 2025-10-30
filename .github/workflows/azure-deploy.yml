@@ -18,7 +18,7 @@ on:
 
 env:
   PYTHON_VERSION: '3.11'
-  AZURE_WEBAPP_NAME: app-upeu-ppp  # Cambiar por tu App Service name
+  AZURE_WEBAPP_NAME: upeu-ppp-api-5983  # Azure App Service name
   AZURE_WEBAPP_PACKAGE_PATH: '.'
 
 jobs:

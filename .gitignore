@@ -33,6 +33,11 @@ staticfiles/
 .env
 .env.local
 .env.production
+.env.azure
+.env.development
+.env.*
+azure_credentials*.txt
+*_credentials*.txt
 
 # IDEs
 .vscode/

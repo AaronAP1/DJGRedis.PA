@@ -1,0 +1,52 @@
+# =====================================================
+# REQUIREMENTS PARA AZURE APP SERVICE
+# Incluye gunicorn y dependencias de producción
+# =====================================================
+
+# Core Django
+Django>=5.0.0,<5.1.0
+django-cors-headers>=4.3.0
+python-dotenv>=1.0.0
+python-decouple>=3.8
+
+# REST Framework
+djangorestframework>=3.14.0
+djangorestframework-simplejwt>=5.3.0
+django-filter>=23.5
+
+# GraphQL
+graphene-django>=3.2.0
+
+# Database
+psycopg2-binary>=2.9.9
+redis>=5.0.1
+pymongo>=4.6.1
+django-redis>=5.4.0
+
+# Celery
+celery>=5.3.4
+django-celery-beat>=2.5.0
+django-celery-results>=2.5.1
+
+# Security & Auth
+cryptography>=41.0.7
+PyJWT>=2.8.0
+django-axes>=6.1.1
+
+# Documentation
+drf-spectacular>=0.27.0
+drf-spectacular-sidecar>=2024.1.1
+django-scalar>=0.1.0
+
+# Utilities
+Pillow>=10.1.0
+openpyxl>=3.1.2
+reportlab>=4.0.7
+django-extensions>=3.2.3
+
+# Azure specific
+whitenoise>=6.6.0
+gunicorn>=21.2.0
+
+# Monitoring (opcional pero recomendado)
+sentry-sdk>=1.39.1
