@@ -31,8 +31,7 @@ class SecurityHeadersMiddleware(MiddlewareMixin):
             "payment=(), "
             "usb=(), "
             "magnetometer=(), "
-            "gyroscope=(), "
-            "speaker=()"
+            "gyroscope=()"
         )
         response['Permissions-Policy'] = permissions_policy
         
@@ -40,12 +39,12 @@ class SecurityHeadersMiddleware(MiddlewareMixin):
     
     def _build_csp_policy(self):
         """Construye la política CSP basada en configuración."""
-        # Política base restrictiva
+        # Política base restrictiva con soporte para Swagger y Scalar
         policy_parts = [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-            "font-src 'self' https://fonts.gstatic.com",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://cdn.jsdelivr.net",
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
+            "font-src 'self' https://fonts.gstatic.com data:",
             "img-src 'self' data: https:",
             "connect-src 'self' https://challenges.cloudflare.com",
             "frame-src https://challenges.cloudflare.com",
@@ -57,7 +56,7 @@ class SecurityHeadersMiddleware(MiddlewareMixin):
         # En desarrollo, permitir localhost
         if settings.DEBUG:
             policy_parts.extend([
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* https://challenges.cloudflare.com",
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* https://challenges.cloudflare.com https://cdn.jsdelivr.net",
                 "connect-src 'self' http://localhost:* ws://localhost:* https://challenges.cloudflare.com",
             ])
         
