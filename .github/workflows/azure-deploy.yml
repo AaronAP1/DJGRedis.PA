@@ -1,0 +1,266 @@
+# =====================================================
+# GITHUB ACTIONS - AZURE APP SERVICE DEPLOYMENT
+# Sistema de Gestión de Prácticas Profesionales - UPeU
+# =====================================================
+# Este workflow despliega automáticamente a Azure App Service
+# cuando hay push a la rama master
+
+name: Deploy to Azure App Service
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:  # Permite ejecución manual
+
+env:
+  PYTHON_VERSION: '3.11'
+  AZURE_WEBAPP_NAME: app-upeu-ppp  # Cambiar por tu App Service name
+  AZURE_WEBAPP_PACKAGE_PATH: '.'
+
+jobs:
+  # =====================================================
+  # JOB 1: BUILD & TEST
+  # =====================================================
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    services:
+      # PostgreSQL para tests
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: test_db
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      # Redis para tests
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      # 1. Checkout código
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Setup Python
+      - name: 🐍 Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      # 3. Install dependencies
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements/production.txt
+          pip install pytest pytest-django pytest-cov
+
+      # 4. Run Linting
+      - name: 🔍 Run linting checks
+        run: |
+          pip install flake8
+          # Stop build if there are Python syntax errors or undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Exit-zero treats all errors as warnings
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        continue-on-error: true
+
+      # 5. Run Security Check
+      - name: 🔒 Security vulnerability scan
+        run: |
+          pip install safety bandit
+          # Check dependencies for known vulnerabilities
+          safety check --json || true
+          # Check code for security issues
+          bandit -r src/ -f json || true
+        continue-on-error: true
+
+      # 6. Run Tests
+      - name: 🧪 Run unit tests
+        env:
+          DATABASE_URL: postgres://test_user:test_password@localhost:5432/test_db
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key-for-ci-cd-pipeline-only
+          DEBUG: False
+          ALLOWED_HOSTS: localhost,127.0.0.1
+          USE_REDIS_CACHE: True
+        run: |
+          python manage.py test --verbosity=2
+          # pytest --cov=src --cov-report=xml --cov-report=term
+
+      # 7. Upload coverage (optional)
+      # - name: 📊 Upload coverage to Codecov
+      #   uses: codecov/codecov-action@v3
+      #   with:
+      #     file: ./coverage.xml
+      #     fail_ci_if_error: false
+
+      # 8. Collect static files
+      - name: 🎨 Collect static files
+        env:
+          SECRET_KEY: test-secret-key-for-ci-cd-pipeline-only
+          DEBUG: False
+        run: |
+          python manage.py collectstatic --noinput
+
+      # 9. Create deployment artifact
+      - name: 📦 Create deployment package
+        run: |
+          zip -r ${{ env.AZURE_WEBAPP_NAME }}.zip . \
+            -x '*.git*' \
+            -x '*__pycache__*' \
+            -x '*.pyc' \
+            -x 'tests/*' \
+            -x 'docs/*' \
+            -x '.env*' \
+            -x 'venv/*' \
+            -x '.vscode/*'
+
+      # 10. Upload artifact para deployment
+      - name: ⬆️ Upload artifact for deployment
+        uses: actions/upload-artifact@v3
+        with:
+          name: python-app
+          path: ${{ env.AZURE_WEBAPP_NAME }}.zip
+          retention-days: 1
+
+  # =====================================================
+  # JOB 2: DEPLOY TO AZURE (solo en master)
+  # =====================================================
+  deploy:
+    name: Deploy to Azure App Service
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    environment:
+      name: 'production'
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+
+    steps:
+      # 1. Download artifact
+      - name: 📥 Download artifact from build job
+        uses: actions/download-artifact@v3
+        with:
+          name: python-app
+
+      # 2. Unzip artifact
+      - name: 📦 Unzip artifact for deployment
+        run: unzip ${{ env.AZURE_WEBAPP_NAME }}.zip -d deployment
+
+      # 3. Login to Azure
+      - name: 🔐 Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # 4. Deploy to Azure App Service
+      - name: 🚀 Deploy to Azure Web App
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          package: deployment
+          startup-command: 'bash startup.sh'
+
+      # 5. Run post-deployment health check
+      - name: 🏥 Health check
+        run: |
+          sleep 30  # Wait for app to start
+          curl -f ${{ steps.deploy-to-webapp.outputs.webapp-url }}/api/health/ || exit 1
+        continue-on-error: true
+
+      # 6. Notify deployment status (optional)
+      # - name: 📢 Notify deployment status
+      #   if: always()
+      #   uses: 8398a7/action-slack@v3
+      #   with:
+      #     status: ${{ job.status }}
+      #     webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+  # =====================================================
+  # JOB 3: SMOKE TESTS (Post-deployment)
+  # =====================================================
+  smoke-tests:
+    name: Run Smoke Tests
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🧪 Run smoke tests
+        run: |
+          # Test health endpoint
+          echo "Testing health endpoint..."
+          curl -f https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/api/health/
+          
+          # Test admin panel
+          echo "Testing admin panel..."
+          curl -f https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/admin/
+          
+          # Test API documentation
+          echo "Testing API docs..."
+          curl -f https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/api/swagger/
+
+# =====================================================
+# SECRETS REQUIRED
+# =====================================================
+# Configure these secrets in GitHub:
+# Repository -> Settings -> Secrets and variables -> Actions
+#
+# 1. AZURE_CREDENTIALS:
+#    Run: az ad sp create-for-rbac --name "github-actions-upeu" \
+#           --role contributor \
+#           --scopes /subscriptions/{subscription-id}/resourceGroups/{resource-group} \
+#           --sdk-auth
+#    Copy JSON output to secret
+#
+# 2. AZURE_WEBAPP_PUBLISH_PROFILE (Alternative to AZURE_CREDENTIALS):
+#    Portal Azure -> App Service -> Deployment Center -> Manage publish profile
+#    Download and paste content
+#
+# 3. Optional secrets:
+#    - SLACK_WEBHOOK: For deployment notifications
+#    - CODECOV_TOKEN: For code coverage reports
+
+# =====================================================
+# ENVIRONMENT VARIABLES IN AZURE
+# =====================================================
+# Configure in Azure Portal -> App Service -> Configuration:
+#
+# 1. Application Settings:
+#    - DJANGO_SETTINGS_MODULE=config.settings
+#    - DEBUG=False
+#    - SECRET_KEY=<from Azure Key Vault>
+#    - ALLOWED_HOSTS=app-upeu-ppp.azurewebsites.net,practicas.upeu.edu.pe
+#    - DATABASE_URL=<PostgreSQL connection string>
+#    - REDIS_URL=<Redis connection string>
+#    - MONGODB_URI=<Cosmos DB connection string>
+#    - (etc... see DEPLOYMENT_RENDER_VS_AZURE.md)
+#
+# 2. General Settings:
+#    - Stack: Python
+#    - Version: 3.11
+#    - Startup Command: bash startup.sh

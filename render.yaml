@@ -1,0 +1,245 @@
+# =====================================================
+# RENDER BLUEPRINT - Sistema PPP UPeU
+# Configuración Infrastructure as Code para Render.com
+# =====================================================
+
+services:
+  # =====================================================
+  # DJANGO WEB APPLICATION
+  # =====================================================
+  - type: web
+    name: upeu-ppp-backend
+    runtime: python
+    region: oregon
+    plan: starter
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements/production.txt
+      python manage.py collectstatic --no-input
+      python manage.py migrate --no-input
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 config.wsgi:application
+    healthCheckPath: /api/health/
+    
+    envVars:
+      # Django Core
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings
+      
+      - key: DEBUG
+        value: false
+      
+      - key: SECRET_KEY
+        generateValue: true
+      
+      - key: ALLOWED_HOSTS
+        value: upeu-ppp-backend.onrender.com
+      
+      # Database (auto-filled from database service)
+      - key: DATABASE_URL
+        fromDatabase:
+          name: upeu-postgres
+          property: connectionString
+      
+      - key: DB_NAME
+        value: upeu_ppp_system
+      
+      # Redis (auto-filled from redis service)
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: upeu-redis
+          property: connectionString
+      
+      - key: USE_REDIS_CACHE
+        value: true
+      
+      # Celery
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: upeu-redis
+          property: connectionString
+      
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: redis
+          name: upeu-redis
+          property: connectionString
+      
+      - key: CELERY_TASK_ALWAYS_EAGER
+        value: false
+      
+      - key: CELERY_TIMEZONE
+        value: America/Lima
+      
+      # MongoDB (use MongoDB Atlas - add manually)
+      # MONGODB_URI: mongodb+srv://user:pass@cluster.mongodb.net/upeu_documents
+      # MONGODB_DB_NAME: upeu_documents
+      
+      # Email (configure manually)
+      # EMAIL_BACKEND: django.core.mail.backends.smtp.EmailBackend
+      # EMAIL_HOST: smtp.gmail.com
+      # EMAIL_PORT: 587
+      # EMAIL_USE_TLS: True
+      # EMAIL_HOST_USER: your-email@gmail.com
+      # EMAIL_HOST_PASSWORD: your-app-password
+      
+      # Security
+      - key: ALLOWED_EMAIL_DOMAINS
+        value: upeu.edu.pe
+      
+      - key: AXES_FAILURE_LIMIT
+        value: 5
+      
+      - key: SESSION_COOKIE_SECURE
+        value: true
+      
+      - key: CSRF_COOKIE_SECURE
+        value: true
+      
+      - key: SECURE_SSL_REDIRECT
+        value: true
+      
+      # CORS
+      - key: CORS_ALLOW_CREDENTIALS
+        value: true
+
+  # =====================================================
+  # CELERY WORKER
+  # =====================================================
+  - type: worker
+    name: upeu-celery-worker
+    runtime: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install --upgrade pip && pip install -r requirements/production.txt
+    startCommand: celery -A config worker --loglevel=info --concurrency=2 --max-tasks-per-child=1000
+    
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings
+      
+      - key: DATABASE_URL
+        fromDatabase:
+          name: upeu-postgres
+          property: connectionString
+      
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: upeu-redis
+          property: connectionString
+      
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: upeu-redis
+          property: connectionString
+      
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: redis
+          name: upeu-redis
+          property: connectionString
+
+  # =====================================================
+  # CELERY BEAT (Scheduler)
+  # =====================================================
+  - type: worker
+    name: upeu-celery-beat
+    runtime: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install --upgrade pip && pip install -r requirements/production.txt
+    startCommand: celery -A config beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings
+      
+      - key: DATABASE_URL
+        fromDatabase:
+          name: upeu-postgres
+          property: connectionString
+      
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: upeu-redis
+          property: connectionString
+      
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: upeu-redis
+          property: connectionString
+      
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: redis
+          name: upeu-redis
+          property: connectionString
+
+# =====================================================
+# DATABASES
+# =====================================================
+databases:
+  # PostgreSQL
+  - name: upeu-postgres
+    databaseName: upeu_ppp_system
+    user: upeu_admin
+    plan: starter
+    region: oregon
+    # Starter plan: $7/mes - 256MB RAM, 1GB storage, 100 connections
+
+# =====================================================
+# REDIS CACHE
+# =====================================================
+# Note: Add Redis service manually via Render Dashboard
+# Name: upeu-redis
+# Plan: Starter ($7/mes) - 100MB memory
+# Region: oregon
+# Settings:
+#   - maxmemory-policy: allkeys-lru
+#   - Persistence: Enabled
+
+# =====================================================
+# TOTAL ESTIMATED COST
+# =====================================================
+# - Web Service (Starter): $7/mes
+# - Worker x2 (Starter): $14/mes
+# - PostgreSQL (Starter): $7/mes
+# - Redis (Starter): $7/mes
+# TOTAL: ~$35/mes
+
+# =====================================================
+# MANUAL CONFIGURATION NEEDED
+# =====================================================
+# After deploying, add these environment variables manually:
+#
+# 1. MongoDB Atlas:
+#    MONGODB_URI=mongodb+srv://upeu_admin:<password>@cluster.mongodb.net/upeu_documents
+#    MONGODB_DB_NAME=upeu_documents
+#
+# 2. Email (Gmail example):
+#    EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+#    EMAIL_HOST=smtp.gmail.com
+#    EMAIL_PORT=587
+#    EMAIL_USE_TLS=True
+#    EMAIL_HOST_USER=your-email@gmail.com
+#    EMAIL_HOST_PASSWORD=your-app-password
+#
+# 3. CORS (if using separate frontend):
+#    CORS_ALLOWED_ORIGINS=https://your-frontend.com
+#
+# 4. Custom Domain (optional):
+#    ALLOWED_HOSTS=upeu-ppp-backend.onrender.com,practicas.upeu.edu.pe
