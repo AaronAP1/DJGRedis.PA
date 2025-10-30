@@ -35,9 +35,9 @@ services:
         generateValue: true
       
       - key: ALLOWED_HOSTS
-        value: upeu-ppp-backend.onrender.com
+        value: djgredis-pa.onrender.com,.onrender.com,localhost,127.0.0.1
       
-      # Database (auto-filled from database service)
+      # Azure PostgreSQL
       - key: DATABASE_URL
         fromDatabase:
           name: upeu-postgres
