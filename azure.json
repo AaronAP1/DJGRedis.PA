@@ -1,0 +1,15 @@
+{
+  "name": "upeu-ppp-api-7660",
+  "configurations": {
+    "python_version": "3.11",
+    "startup_file": "startup.sh"
+  },
+  "settings": {
+    "PYTHONPATH": "/home/site/wwwroot",
+    "DJANGO_SETTINGS_MODULE": "config.settings",
+    "DEBUG": "False",
+    "ALLOWED_HOSTS": "upeu-ppp-api-7660.azurewebsites.net",
+    "WEBSITE_WEBDEPLOY_USE_SCM": "true",
+    "SCM_DO_BUILD_DURING_DEPLOYMENT": "true"
+  }
+}

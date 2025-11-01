@@ -29,6 +29,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar código de la aplicación
 COPY . .
 
+# Asegurar que startup.sh está presente y tiene permisos correctos
+RUN chmod +x /app/startup.sh \
+    && cp /app/startup.sh /home/startup.sh \
+    && chmod +x /home/startup.sh
+
+# Crear directorio site y copiar startup.sh allí también
+RUN mkdir -p /home/site \
+    && cp /app/startup.sh /home/site/startup.sh \
+    && chmod +x /home/site/startup.sh
+
 # Copiar script de inicio y dar permisos
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh

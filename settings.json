@@ -1,0 +1,8 @@
+{
+    "WEBSITE_WEBDEPLOY_USE_SCM":  "true",
+    "DEBUG":  "False",
+    "SCM_DO_BUILD_DURING_DEPLOYMENT":  "true",
+    "DJANGO_SETTINGS_MODULE":  "config.settings",
+    "PYTHONPATH":  "/home/site/wwwroot",
+    "ALLOWED_HOSTS":  "upeu-ppp-api-7660.azurewebsites.net"
+}
