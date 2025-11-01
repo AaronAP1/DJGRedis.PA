@@ -28,6 +28,7 @@ from django.db.models import Q, Count, Avg
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from datetime import datetime
+from drf_spectacular.utils import extend_schema
 
 from src.adapters.secondary.database.models import (
     Student, Company, Supervisor, Practice, Document, Notification, Avatar,
@@ -96,6 +97,7 @@ User = get_user_model()
 # USER VIEWSET
 # ============================================================================
 
+@extend_schema(tags=['Usuarios'])
 class UserViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de usuarios.
@@ -417,6 +419,7 @@ class UserViewSet(viewsets.ModelViewSet):
 # STUDENT VIEWSET
 # ============================================================================
 
+@extend_schema(tags=['Estudiantes'])
 class StudentViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de estudiantes.
@@ -566,6 +569,7 @@ class StudentViewSet(viewsets.ModelViewSet):
 # COMPANY VIEWSET
 # ============================================================================
 
+@extend_schema(tags=['Empresas'])
 class CompanyViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de empresas.
@@ -766,6 +770,7 @@ class CompanyViewSet(viewsets.ModelViewSet):
 # SUPERVISOR VIEWSET
 # ============================================================================
 
+@extend_schema(tags=['Supervisores'])
 class SupervisorViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de supervisores.
@@ -857,6 +862,7 @@ class SupervisorViewSet(viewsets.ModelViewSet):
 # PRACTICE VIEWSET
 # ============================================================================
 
+@extend_schema(tags=['Prácticas'])
 class PracticeViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de prácticas profesionales.
@@ -1285,6 +1291,7 @@ class PracticeViewSet(viewsets.ModelViewSet):
 # DOCUMENT VIEWSET
 # ============================================================================
 
+@extend_schema(tags=['Documentos'])
 class DocumentViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de documentos.
@@ -1488,6 +1495,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
 # NOTIFICATION VIEWSET
 # ============================================================================
 
+@extend_schema(tags=['Notificaciones'])
 class NotificationViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de notificaciones.
@@ -1616,6 +1624,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
 # VIEWSET DE ESCUELAS PROFESIONALES
 # ============================================================================
 
+@extend_schema(tags=['Escuelas'])
 class SchoolViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de escuelas profesionales.
@@ -1718,6 +1727,7 @@ class SchoolViewSet(viewsets.ModelViewSet):
 # VIEWSET DE RAMAS/ESPECIALIDADES
 # ============================================================================
 
+@extend_schema(tags=['Especialidades'])
 class BranchViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de ramas/especialidades.
@@ -1777,6 +1787,7 @@ class BranchViewSet(viewsets.ModelViewSet):
 # VIEWSET DE EVALUACIONES DE PRÁCTICAS
 # ============================================================================
 
+@extend_schema(tags=['Evaluaciones de Prácticas'])
 class PracticeEvaluationViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de evaluaciones de prácticas.
@@ -1920,6 +1931,7 @@ class PracticeEvaluationViewSet(viewsets.ModelViewSet):
 # VIEWSET DE HISTORIAL DE ESTADOS
 # ============================================================================
 
+@extend_schema(tags=['Historial de Estados'])
 class PracticeStatusHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet de solo lectura para historial de estados de prácticas.

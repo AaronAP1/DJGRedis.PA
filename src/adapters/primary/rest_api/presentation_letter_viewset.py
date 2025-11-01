@@ -2,7 +2,7 @@
 ViewSet para Solicitudes de Carta de Presentación.
 """
 
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -27,6 +27,7 @@ from src.adapters.primary.rest_api.presentation_letter_serializers import (
 )
 
 
+@extend_schema(tags=['Cartas de Presentación'])
 class PresentationLetterRequestViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestionar Solicitudes de Carta de Presentación.
