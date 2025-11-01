@@ -109,6 +109,7 @@ def api_root(request, format=None):
             'practice_status_history': request.build_absolute_uri('practice-status-history/'),
             'dashboards': request.build_absolute_uri('dashboards/'),
             'reports': request.build_absolute_uri('reports/'),
+            'carta_presentacion': request.build_absolute_uri('presentation-letters/'),
         },
         'documentation': {
             'swagger': '/api/docs/',
