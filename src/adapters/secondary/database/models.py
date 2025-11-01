@@ -1669,3 +1669,239 @@ class PracticeStatusHistory(models.Model):
     
     def __str__(self):
         return f"{self.practice.titulo}: {self.estado_anterior} → {self.estado_nuevo}"
+
+
+# ============================================================================
+# MODELO: SOLICITUD DE CARTA DE PRESENTACIÓN
+# ============================================================================
+
+class PresentationLetterRequest(models.Model):
+    """
+    Solicitud de Carta de Presentación.
+    
+    Primer paso del proceso de prácticas: el estudiante solicita una carta
+    de presentación oficial de la universidad para presentar ante la empresa.
+    
+    Flujo:
+    1. PRACTICANTE crea solicitud (DRAFT)
+    2. PRACTICANTE envía a revisión (PENDING)
+    3. SECRETARIA valida y aprueba (APPROVED)
+    4. SECRETARIA genera PDF de carta (GENERATED)
+    5. PRACTICANTE descarga carta
+    """
+    
+    STATUS_CHOICES = [
+        ('DRAFT', 'Borrador'),
+        ('PENDING', 'Pendiente de revisión'),
+        ('APPROVED', 'Aprobado'),
+        ('REJECTED', 'Rechazado'),
+        ('GENERATED', 'Carta generada'),
+        ('USED', 'Usada en práctica'),
+    ]
+    
+    # Primary Key
+    id = models.AutoField(primary_key=True)
+    
+    # ========================================================================
+    # RELACIONES
+    # ========================================================================
+    
+    student = models.ForeignKey(
+        'StudentProfile',
+        on_delete=models.CASCADE,
+        related_name='presentation_letter_requests',
+        verbose_name='Estudiante',
+        help_text='Estudiante que solicita la carta'
+    )
+    
+    assigned_secretary = models.ForeignKey(
+        'User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        limit_choices_to={'rol_id__nombre': 'SECRETARIA'},
+        related_name='assigned_letter_requests',
+        verbose_name='Secretaria Asignada'
+    )
+    
+    # ========================================================================
+    # DATOS DEL ESTUDIANTE (desnormalizados para el PDF)
+    # ========================================================================
+    
+    ep = models.CharField(
+        'E.P. (Escuela Profesional)',
+        max_length=200,
+        help_text='Ejemplo: Ingeniería de Sistemas'
+    )
+    
+    student_full_name = models.CharField(
+        'Nombre Completo del Alumno',
+        max_length=200
+    )
+    
+    student_code = models.CharField(
+        'Código del Estudiante',
+        max_length=20
+    )
+    
+    year_of_study = models.CharField(
+        'Año de Estudios',
+        max_length=50,
+        help_text='Ejemplo: Quinto año'
+    )
+    
+    study_cycle = models.CharField(
+        'Ciclo de Estudios',
+        max_length=10,
+        help_text='Ejemplo: IX'
+    )
+    
+    student_email = models.EmailField(
+        'Email del Estudiante',
+        max_length=100
+    )
+    
+    # ========================================================================
+    # DATOS DE LA EMPRESA
+    # ========================================================================
+    
+    company_name = models.CharField(
+        'Nombre de la Empresa',
+        max_length=255,
+        help_text='Razón social de la empresa'
+    )
+    
+    company_representative = models.CharField(
+        'Nombre del Representante',
+        max_length=200,
+        help_text='Persona de contacto en la empresa'
+    )
+    
+    company_position = models.CharField(
+        'Cargo del Representante / Grado Académico',
+        max_length=100,
+        help_text='Ejemplo: Gerente de Recursos Humanos'
+    )
+    
+    company_phone = models.CharField(
+        'Teléfono - Fax',
+        max_length=50
+    )
+    
+    company_address = models.TextField(
+        'Dirección de la Empresa'
+    )
+    
+    practice_area = models.CharField(
+        'Área de Práctica',
+        max_length=100,
+        help_text='Ejemplo: Desarrollo de Software, Redes, Base de Datos'
+    )
+    
+    # ========================================================================
+    # FECHAS
+    # ========================================================================
+    
+    start_date = models.DateField(
+        'Fecha de Inicio',
+        help_text='Fecha aproximada de inicio de práctica'
+    )
+    
+    # ========================================================================
+    # ESTADO Y RESULTADO
+    # ========================================================================
+    
+    status = models.CharField(
+        'Estado',
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='DRAFT'
+    )
+    
+    letter_document = models.ForeignKey(
+        'Document',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='presentation_letter',
+        verbose_name='Documento de Carta Generada',
+        help_text='PDF de la carta de presentación generada'
+    )
+    
+    rejection_reason = models.TextField(
+        'Motivo de Rechazo',
+        blank=True,
+        null=True,
+        help_text='Razón por la cual la secretaria rechazó la solicitud'
+    )
+    
+    # ========================================================================
+    # METADATA Y TIMESTAMPS
+    # ========================================================================
+    
+    created_at = models.DateTimeField(
+        'Fecha de Creación',
+        auto_now_add=True
+    )
+    
+    updated_at = models.DateTimeField(
+        'Última Actualización',
+        auto_now=True
+    )
+    
+    submitted_at = models.DateTimeField(
+        'Fecha de Envío',
+        null=True,
+        blank=True,
+        help_text='Cuando se envió a secretaría'
+    )
+    
+    reviewed_at = models.DateTimeField(
+        'Fecha de Revisión',
+        null=True,
+        blank=True,
+        help_text='Cuando la secretaria revisó'
+    )
+    
+    class Meta:
+        db_table = 'presentation_letter_requests'
+        verbose_name = 'Solicitud de Carta de Presentación'
+        verbose_name_plural = 'Solicitudes de Carta de Presentación'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['student', 'status']),
+            models.Index(fields=['assigned_secretary', 'status']),
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['student_code']),
+        ]
+    
+    def __str__(self):
+        return f"Carta {self.student_code} - {self.company_name} ({self.get_status_display()})"
+    
+    def can_edit(self):
+        """Permite edición solo en estado DRAFT o REJECTED."""
+        return self.status in ['DRAFT', 'REJECTED']
+    
+    def can_submit(self):
+        """Permite envío solo desde DRAFT."""
+        return self.status == 'DRAFT'
+    
+    def can_approve(self):
+        """Permite aprobación solo desde PENDING."""
+        return self.status == 'PENDING'
+    
+    def can_generate_pdf(self):
+        """Permite generar PDF solo si está APPROVED y no tiene documento."""
+        return self.status == 'APPROVED' and not self.letter_document
+    
+    def save(self, *args, **kwargs):
+        """Auto-rellenar datos del estudiante al crear."""
+        if not self.pk and self.student:  # Solo al crear
+            self.student_full_name = f"{self.student.usuario.nombres} {self.student.usuario.apellidos}"
+            self.student_code = self.student.codigo
+            self.student_email = self.student.usuario.correo
+            if self.student.escuela:
+                self.ep = self.student.escuela.nombre
+        
+        super().save(*args, **kwargs)
+

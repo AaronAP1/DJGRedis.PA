@@ -37,6 +37,9 @@ from src.adapters.primary.rest_api.user_permissions.viewset import UserPermissio
 from src.adapters.primary.rest_api.views.dashboards import DashboardViewSet
 from src.adapters.primary.rest_api.views.reports import ReportsViewSet
 
+# Presentation Letter ViewSet (Nuevo - Carta de Presentación)
+from src.adapters.primary.rest_api.presentation_letter_viewset import PresentationLetterRequestViewSet
+
 
 # ============================================================================
 # ROUTER CONFIGURATION
@@ -67,6 +70,9 @@ router.register(r'practice-status-history', PracticeStatusHistoryViewSet, basena
 # Registrar ViewSets de Dashboard y Reportes (Fase 7)
 router.register(r'dashboards', DashboardViewSet, basename='dashboard')
 router.register(r'reports', ReportsViewSet, basename='report')
+
+# Registrar ViewSet de Solicitud de Carta de Presentación
+router.register(r'presentation-letters', PresentationLetterRequestViewSet, basename='presentation-letter')
 
 
 # ============================================================================

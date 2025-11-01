@@ -177,3 +177,20 @@ class DocumentType(Enum):
     @classmethod
     def choices(cls):
         return [(doc_type.value, doc_type.value) for doc_type in cls]
+
+
+class PresentationLetterStatus(Enum):
+    """Estados de solicitud de carta de presentación."""
+    DRAFT = "DRAFT"                   # Borrador (estudiante editando)
+    PENDING = "PENDING"               # Enviado a secretaría
+    APPROVED = "APPROVED"             # Aprobado por secretaria
+    REJECTED = "REJECTED"             # Rechazado (debe corregir)
+    GENERATED = "GENERATED"           # PDF de carta generado
+    USED = "USED"                     # Usada para crear práctica
+
+    def __str__(self):
+        return self.value
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.value) for status in cls]
