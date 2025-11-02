@@ -2,14 +2,16 @@
 set -e
 
 # Configuración de entorno
-export HOME="/home"
-export PYTHONPATH="/home/site/wwwroot:/opt/python/3.11.13/lib/python3.11/site-packages:$PYTHONPATH"
-export PATH="/opt/python/3.11.13/bin:/home/site/wwwroot:$PATH"
+export HOME="/home/site/wwwroot"
+export PYTHONPATH="/home/site/wwwroot"
 export DJANGO_SETTINGS_MODULE="config.settings"
-export WSGI_APP="config.wsgi:application"
 
 # Cambiar al directorio de la aplicación
 cd /home/site/wwwroot
+
+# Crear y activar entorno virtual
+python -m venv env
+source env/bin/activate
 
 echo "Starting UPEU PPP API..."
 echo "Current directory: $(pwd)"

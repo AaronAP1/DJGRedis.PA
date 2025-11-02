@@ -79,8 +79,9 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'src.infrastructure.middleware.jwt_auth.JWTAuthenticationMiddleware',
-    'src.infrastructure.middleware.jwt_auth.JWTCookieMiddleware',  # Para establecer cookies JWT
+    # JWT middlewares temporalmente desactivados
+    # 'src.infrastructure.middleware.jwt_auth.JWTAuthenticationMiddleware',
+    # 'src.infrastructure.middleware.jwt_auth.JWTCookieMiddleware',
     'axes.middleware.AxesMiddleware',
 ]
 
@@ -207,11 +208,9 @@ AUTHENTICATION_BACKENDS = [
 
 # REST Framework configuration
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',  # JWT PURO para API
-    ],
+    'DEFAULT_AUTHENTICATION_CLASSES': [],  # Desactivado temporalmente
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.AllowAny',  # Permitir acceso público
     ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
@@ -322,8 +321,8 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin'
 # Configuración de sanitización
 XSS_LOG_ATTEMPTS = config('XSS_LOG_ATTEMPTS', default=True, cast=bool)
 
-# Sistema JWT PURO
-JWT_PURE_ENABLED = config('JWT_PURE_ENABLED', default=True, cast=bool)
+# Sistema JWT PURO - Desactivado temporalmente
+JWT_PURE_ENABLED = False  # Desactivado para permitir acceso libre
 
 # Sistema JWT PURO
 # Configuración eliminada de sesiones opacas - ahora es JWT puro
