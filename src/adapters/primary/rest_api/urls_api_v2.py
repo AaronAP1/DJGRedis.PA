@@ -72,7 +72,7 @@ router.register(r'dashboards', DashboardViewSet, basename='dashboard')
 router.register(r'reports', ReportsViewSet, basename='report')
 
 # Registrar ViewSet de Solicitud de Carta de Presentación
-router.register(r'presentation-letters', PresentationLetterRequestViewSet, basename='presentation-letter')
+router.register(r'cartas-presentacion', PresentationLetterRequestViewSet, basename='carta-presentacion')
 
 
 # ============================================================================
@@ -109,7 +109,7 @@ def api_root(request, format=None):
             'practice_status_history': request.build_absolute_uri('practice-status-history/'),
             'dashboards': request.build_absolute_uri('dashboards/'),
             'reports': request.build_absolute_uri('reports/'),
-            'carta_presentacion': request.build_absolute_uri('presentation-letters/'),
+            'cartas_presentacion': request.build_absolute_uri('cartas-presentacion/'),
         },
         'documentation': {
             'swagger': '/api/docs/',

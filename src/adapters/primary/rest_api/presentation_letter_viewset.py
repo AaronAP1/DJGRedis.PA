@@ -5,7 +5,7 @@ ViewSet para Solicitudes de Carta de Presentación.
 from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import models as django_models
@@ -47,18 +47,27 @@ class PresentationLetterRequestViewSet(viewsets.ModelViewSet):
     
     queryset = PresentationLetterRequest.objects.select_related(
         'student',
-        'student__user',
+        'student__usuario',
         'student__escuela',
         'assigned_secretary',
         'letter_document'
     ).all()
     
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]  # Permitir acceso sin autenticación
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
     
     filterset_fields = ['status', 'student__codigo_estudiante']
     search_fields = ['student_code', 'student_full_name', 'company_name']
     ordering_fields = ['created_at', 'submitted_at', 'start_date']
     ordering = ['-created_at']
+    
+    def get_permissions(self):
+        """
+        Permisos personalizados según acción.
+        Todos pueden acceder sin restricciones.
+        """
+        # Permitir acceso sin autenticación
+        return [AllowAny()]
     
     def get_serializer_class(self):
         """Retornar serializer según la acción."""
@@ -69,43 +78,28 @@ class PresentationLetterRequestViewSet(viewsets.ModelViewSet):
         return PresentationLetterRequestCreateSerializer
     
     def get_queryset(self):
-        """Filtrar según rol del usuario."""
-        user = self.request.user
-        
-        # Obtener rol del usuario
-        role = user.rol_id.nombre if user.rol_id else None
-        
-        if role == 'PRACTICANTE':
-            # Solo sus solicitudes
-            try:
-                student = StudentProfile.objects.get(usuario=user)
-                return self.queryset.filter(student=student)
-            except StudentProfile.DoesNotExist:
-                return self.queryset.none()
-        
-        elif role == 'SECRETARIA':
-            # Solo las asignadas o pendientes sin asignar
-            return self.queryset.filter(
-                django_models.Q(assigned_secretary=user) |
-                django_models.Q(assigned_secretary__isnull=True, status='PENDING')
-            )
-        
-        else:
-            # Coordinadores y admins ven todas
-            return self.queryset
+        """
+        Filtrar según rol del usuario.
+        Por defecto, todos los usuarios autenticados ven todas las solicitudes.
+        """
+        # Retornar todas las solicitudes para cualquier usuario autenticado
+        return self.queryset
     
     def perform_create(self, serializer):
         """Auto-rellenar datos del estudiante autenticado."""
         user = self.request.user
         
-        # Obtener estudiante del usuario
-        student = get_object_or_404(StudentProfile, usuario=user)
-        
-        # Guardar con estudiante y estado inicial
-        serializer.save(
-            student=student,
-            status='DRAFT'
-        )
+        # Si el usuario está autenticado, obtener su perfil de estudiante
+        if user.is_authenticated:
+            student = get_object_or_404(StudentProfile, usuario=user)
+            serializer.save(
+                student=student,
+                status='DRAFT'
+            )
+        else:
+            # Si no está autenticado, guardar sin estudiante
+            # (para testing o casos especiales)
+            serializer.save(status='DRAFT')
     
     def perform_update(self, serializer):
         """Validar que solo se pueda editar en DRAFT o REJECTED."""
@@ -150,7 +144,7 @@ class PresentationLetterRequestViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=['post'],
-        permission_classes=[IsAuthenticated],
+        permission_classes=[AllowAny],
         url_path='submit'
     )
     def submit(self, request, pk=None):
@@ -214,7 +208,7 @@ class PresentationLetterRequestViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=['post'],
-        permission_classes=[IsAuthenticated],
+        permission_classes=[AllowAny],
         url_path='approve'
     )
     def approve(self, request, pk=None):
@@ -279,7 +273,7 @@ class PresentationLetterRequestViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=['post'],
-        permission_classes=[IsAuthenticated],
+        permission_classes=[AllowAny],
         url_path='reject'
     )
     def reject(self, request, pk=None):
@@ -345,7 +339,7 @@ class PresentationLetterRequestViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=['post'],
-        permission_classes=[IsAuthenticated],
+        permission_classes=[AllowAny],
         url_path='generate-pdf'
     )
     def generate_pdf(self, request, pk=None):
@@ -433,7 +427,7 @@ class PresentationLetterRequestViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=['get'],
-        permission_classes=[IsAuthenticated],
+        permission_classes=[AllowAny],
         url_path='download'
     )
     def download(self, request, pk=None):

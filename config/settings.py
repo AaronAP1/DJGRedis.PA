@@ -208,7 +208,10 @@ AUTHENTICATION_BACKENDS = [
 
 # REST Framework configuration
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [],  # Desactivado temporalmente
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',  # Autenticación de sesión de Django
+        'rest_framework.authentication.BasicAuthentication',    # Autenticación básica para testing
+    ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',  # Permitir acceso público
     ],

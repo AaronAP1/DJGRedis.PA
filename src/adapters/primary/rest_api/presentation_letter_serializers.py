@@ -91,6 +91,21 @@ class PresentationLetterRequestCreateSerializer(serializers.ModelSerializer):
             })
         
         return attrs
+    
+    def to_representation(self, instance):
+        """
+        Sobrescribir para manejar casos donde no hay student asignado.
+        """
+        representation = super().to_representation(instance)
+        
+        # Si no hay student, establecer valores por defecto para campos relacionados
+        if not hasattr(instance, 'student') or instance.student is None:
+            representation['ep'] = None
+            representation['student_full_name'] = None
+            representation['student_code'] = None
+            representation['student_email'] = None
+        
+        return representation
 
 
 class PresentationLetterRequestDetailSerializer(serializers.ModelSerializer):
