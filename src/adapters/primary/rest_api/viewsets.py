@@ -1,10 +1,11 @@
 """
 ViewSets REST completos para todas las entidades del sistema.
 
+ADVERTENCIA: Autenticación temporalmente deshabilitada para desarrollo/pruebas.
+
 Este módulo implementa ViewSets con:
 - CRUD completo (list, retrieve, create, update, partial_update, destroy)
 - Custom actions (@action) para operaciones especiales
-- Permisos basados en roles
 - Filtros y búsquedas
 - Paginación
 - Manejo de errores
@@ -20,6 +21,7 @@ ViewSets incluidos:
 """
 
 from rest_framework import viewsets, status
+from src.infrastructure.security.temp_disable_auth import DisableAuthenticationMixin
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
@@ -98,7 +100,7 @@ User = get_user_model()
 # ============================================================================
 
 @extend_schema(tags=['Usuarios'])
-class UserViewSet(viewsets.ModelViewSet):
+class UserViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para gestión de usuarios.
     
@@ -420,7 +422,7 @@ class UserViewSet(viewsets.ModelViewSet):
 # ============================================================================
 
 @extend_schema(tags=['Estudiantes'])
-class StudentViewSet(viewsets.ModelViewSet):
+class StudentViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para gestión de estudiantes.
     
@@ -863,7 +865,7 @@ class SupervisorViewSet(viewsets.ModelViewSet):
 # ============================================================================
 
 @extend_schema(tags=['Prácticas'])
-class PracticeViewSet(viewsets.ModelViewSet):
+class PracticeViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para gestión de prácticas profesionales.
     
@@ -1292,7 +1294,7 @@ class PracticeViewSet(viewsets.ModelViewSet):
 # ============================================================================
 
 @extend_schema(tags=['Documentos'])
-class DocumentViewSet(viewsets.ModelViewSet):
+class DocumentViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para gestión de documentos.
     
@@ -1496,7 +1498,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
 # ============================================================================
 
 @extend_schema(tags=['Notificaciones'])
-class NotificationViewSet(viewsets.ModelViewSet):
+class NotificationViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para gestión de notificaciones.
     
