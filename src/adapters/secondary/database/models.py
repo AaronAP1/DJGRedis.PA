@@ -1896,12 +1896,17 @@ class PresentationLetterRequest(models.Model):
     
     def save(self, *args, **kwargs):
         """Auto-rellenar datos del estudiante al crear."""
-        if not self.pk and self.student:  # Solo al crear
-            self.student_full_name = f"{self.student.usuario.nombres} {self.student.usuario.apellidos}"
-            self.student_code = self.student.codigo
-            self.student_email = self.student.usuario.correo
-            if self.student.escuela:
-                self.ep = self.student.escuela.nombre
+        # Verificar si tiene student_id en lugar de acceder directamente a student
+        if not self.pk and self.student_id:  # Solo al crear y si hay student_id
+            try:
+                self.student_full_name = f"{self.student.usuario.nombres} {self.student.usuario.apellidos}"
+                self.student_code = self.student.codigo
+                self.student_email = self.student.usuario.correo
+                if self.student.escuela:
+                    self.ep = self.student.escuela.nombre
+            except (AttributeError, self.student.RelatedObjectDoesNotExist):
+                # Si hay algún problema accediendo a los datos del estudiante, continuar
+                pass
         
         super().save(*args, **kwargs)
 
