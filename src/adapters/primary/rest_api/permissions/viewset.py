@@ -17,10 +17,12 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 from drf_spectacular.types import OpenApiTypes
 from django.db.models import Count, Q
 
+from src.infrastructure.security.temp_disable_auth import DisableAuthenticationMixin
 from src.adapters.secondary.database.models import Permission, Role
 from src.adapters.primary.rest_api.serializers import (
     PermissionSerializer, PermissionListSerializer
 )
+
 
 
 @extend_schema_view(
@@ -55,7 +57,7 @@ from src.adapters.primary.rest_api.serializers import (
         tags=["Roles y Permisos"]
     ),
 )
-class PermissionViewSet(viewsets.ModelViewSet):
+class PermissionViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para gestión de permisos del sistema.
     

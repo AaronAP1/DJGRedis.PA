@@ -15,8 +15,10 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 
+from src.infrastructure.security.temp_disable_auth import DisableAuthenticationMixin
 from src.adapters.secondary.database.models import Avatar
 from src.adapters.primary.rest_api.serializers import AvatarSerializer
+
 
 
 @extend_schema_view(
@@ -51,7 +53,7 @@ from src.adapters.primary.rest_api.serializers import AvatarSerializer
         tags=["Avatares"]
     ),
 )
-class AvatarViewSet(viewsets.ModelViewSet):
+class AvatarViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para gestión de avatares.
     

@@ -108,6 +108,8 @@ class Company(Entity):
     direccion: Optional[Direccion] = None
     telefono: Optional[Telefono] = None
     email: Optional[Email] = None
+    grado_academico: Optional[str] = None
+    cargo_academico: Optional[str] = None
     sector_economico: Optional[str] = None
     tamaño_empresa: Optional[str] = None  # MICRO, PEQUEÑA, MEDIANA, GRANDE
     status: CompanyStatus = CompanyStatus.PENDING_VALIDATION

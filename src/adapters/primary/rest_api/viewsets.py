@@ -572,7 +572,7 @@ class StudentViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
 # ============================================================================
 
 @extend_schema(tags=['Empresas'])
-class CompanyViewSet(viewsets.ModelViewSet):
+class CompanyViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para gestión de empresas.
     
@@ -612,20 +612,21 @@ class CompanyViewSet(viewsets.ModelViewSet):
             return CompanySearchSerializer
         return CompanyDetailSerializer
     
-    def get_permissions(self):
-        """Permisos según la acción."""
-        if self.action == 'create':
-            permission_classes = [IsAuthenticated, CanManageCompanies]
-        elif self.action in ['update', 'partial_update']:
-            permission_classes = [IsAuthenticated, CanManageCompanies]
-        elif self.action in ['validate', 'suspend']:
-            permission_classes = [IsAuthenticated, CanValidateCompany]
-        elif self.action == 'destroy':
-            permission_classes = [IsAuthenticated, IsAdministrador]
-        else:
-            permission_classes = [IsAuthenticated, CanViewCompany]
-        
-        return [permission() for permission in permission_classes]
+    # DESHABILITADO TEMPORALMENTE - Usando DisableAuthenticationMixin para desarrollo
+    # def get_permissions(self):
+    #     """Permisos según la acción."""
+    #     if self.action == 'create':
+    #         permission_classes = [IsAuthenticated, CanManageCompanies]
+    #     elif self.action in ['update', 'partial_update']:
+    #         permission_classes = [IsAuthenticated, CanManageCompanies]
+    #     elif self.action in ['validate', 'suspend']:
+    #         permission_classes = [IsAuthenticated, CanValidateCompany]
+    #     elif self.action == 'destroy':
+    #         permission_classes = [IsAuthenticated, IsAdministrador]
+    #     else:
+    #         permission_classes = [IsAuthenticated, CanViewCompany]
+    #     
+    #     return [permission() for permission in permission_classes]
     
     def get_queryset(self):
         """Filtrar empresas según el rol."""
@@ -773,7 +774,7 @@ class CompanyViewSet(viewsets.ModelViewSet):
 # ============================================================================
 
 @extend_schema(tags=['Supervisores'])
-class SupervisorViewSet(viewsets.ModelViewSet):
+class SupervisorViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para gestión de supervisores.
     
@@ -805,18 +806,19 @@ class SupervisorViewSet(viewsets.ModelViewSet):
             return SupervisorUpdateSerializer
         return SupervisorDetailSerializer
     
-    def get_permissions(self):
-        """Permisos según la acción."""
-        if self.action == 'create':
-            permission_classes = [IsAuthenticated, CanManageCompanies]
-        elif self.action in ['update', 'partial_update']:
-            permission_classes = [IsAuthenticated, CanManageCompanies]
-        elif self.action == 'destroy':
-            permission_classes = [IsAuthenticated, IsAdministrador]
-        else:
-            permission_classes = [IsAuthenticated, CanViewCompany]
-        
-        return [permission() for permission in permission_classes]
+    # DESHABILITADO TEMPORALMENTE - Usando DisableAuthenticationMixin para desarrollo
+    # def get_permissions(self):
+    #     """Permisos según la acción."""
+    #     if self.action == 'create':
+    #         permission_classes = [IsAuthenticated, CanManageCompanies]
+    #     elif self.action in ['update', 'partial_update']:
+    #         permission_classes = [IsAuthenticated, CanManageCompanies]
+    #     elif self.action == 'destroy':
+    #         permission_classes = [IsAuthenticated, IsAdministrador]
+    #     else:
+    #         permission_classes = [IsAuthenticated, CanViewCompany]
+    #     
+    #     return [permission() for permission in permission_classes]
     
     def get_queryset(self):
         """Filtrar supervisores según el rol."""
@@ -1627,7 +1629,7 @@ class NotificationViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
 # ============================================================================
 
 @extend_schema(tags=['Escuelas'])
-class SchoolViewSet(viewsets.ModelViewSet):
+class SchoolViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para gestión de escuelas profesionales.
     
@@ -1657,11 +1659,12 @@ class SchoolViewSet(viewsets.ModelViewSet):
             return SchoolUpdateSerializer
         return SchoolDetailSerializer
     
-    def get_permissions(self):
-        """Define permisos según la acción."""
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsAuthenticated(), IsAdminOrCoordinador()]
-        return [IsAuthenticated()]
+    # DESHABILITADO TEMPORALMENTE - Usando DisableAuthenticationMixin para desarrollo
+    # def get_permissions(self):
+    #     """Define permisos según la acción."""
+    #     if self.action in ['create', 'update', 'partial_update', 'destroy']:
+    #         return [IsAuthenticated(), IsAdminOrCoordinador()]
+    #     return [IsAuthenticated()]
     
     @action(detail=True, methods=['get'])
     def estudiantes(self, request, pk=None):
@@ -1730,7 +1733,7 @@ class SchoolViewSet(viewsets.ModelViewSet):
 # ============================================================================
 
 @extend_schema(tags=['Especialidades'])
-class BranchViewSet(viewsets.ModelViewSet):
+class BranchViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para gestión de ramas/especialidades.
     
@@ -1759,11 +1762,12 @@ class BranchViewSet(viewsets.ModelViewSet):
             return BranchUpdateSerializer
         return BranchDetailSerializer
     
-    def get_permissions(self):
-        """Define permisos según la acción."""
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsAuthenticated(), IsAdminOrCoordinador()]
-        return [IsAuthenticated()]
+    # DESHABILITADO TEMPORALMENTE - Usando DisableAuthenticationMixin para desarrollo
+    # def get_permissions(self):
+    #     """Define permisos según la acción."""
+    #     if self.action in ['create', 'update', 'partial_update', 'destroy']:
+    #         return [IsAuthenticated(), IsAdminOrCoordinador()]
+    #     return [IsAuthenticated()]
     
     @action(detail=True, methods=['get'])
     def estudiantes(self, request, pk=None):
@@ -1790,7 +1794,7 @@ class BranchViewSet(viewsets.ModelViewSet):
 # ============================================================================
 
 @extend_schema(tags=['Evaluaciones de Prácticas'])
-class PracticeEvaluationViewSet(viewsets.ModelViewSet):
+class PracticeEvaluationViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para gestión de evaluaciones de prácticas.
     
@@ -1934,7 +1938,7 @@ class PracticeEvaluationViewSet(viewsets.ModelViewSet):
 # ============================================================================
 
 @extend_schema(tags=['Historial de Estados'])
-class PracticeStatusHistoryViewSet(viewsets.ReadOnlyModelViewSet):
+class PracticeStatusHistoryViewSet(DisableAuthenticationMixin, viewsets.ReadOnlyModelViewSet):
     """
     ViewSet de solo lectura para historial de estados de prácticas.
     

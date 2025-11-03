@@ -17,6 +17,7 @@ from drf_spectacular.types import OpenApiTypes
 from django.db.models import Count
 from django.contrib.auth import get_user_model
 
+from src.infrastructure.security.temp_disable_auth import DisableAuthenticationMixin
 from src.adapters.secondary.database.models import Role, Permission, RolePermission
 from src.adapters.primary.rest_api.serializers import (
     RoleSerializer, RoleListSerializer, RoleCreateSerializer,
@@ -58,7 +59,7 @@ User = get_user_model()
         tags=["Roles y Permisos"]
     ),
 )
-class RoleViewSet(viewsets.ModelViewSet):
+class RoleViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para roles del sistema (upeu_rol).
     

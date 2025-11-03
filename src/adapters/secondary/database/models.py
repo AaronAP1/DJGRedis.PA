@@ -395,6 +395,12 @@ class Company(models.Model):
                                        db_column='sector_economico')
     tamaño_empresa = models.CharField('Tamaño', max_length=20, choices=TAMAÑO_CHOICES, 
                                      blank=True, null=True, db_column='tamaño_empresa')
+    grado_academico = models.CharField('Grado Académico', max_length=100, blank=True, null=True,
+                                      db_column='grado_academico',
+                                      help_text='Ej: Ingeniero, Licenciado, Magister, Doctor')
+    cargo_academico = models.CharField('Cargo Académico', max_length=100, blank=True, null=True,
+                                      db_column='cargo_academico',
+                                      help_text='Ej: Gerente General, Director, Jefe de RRHH')
     estado = models.CharField('Estado', max_length=20, choices=ESTADO_CHOICES, 
                              default='PENDIENTE', db_column='estado')
     

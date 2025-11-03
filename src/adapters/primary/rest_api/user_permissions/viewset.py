@@ -20,6 +20,7 @@ from django.db.models import Q
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 
+from src.infrastructure.security.temp_disable_auth import DisableAuthenticationMixin
 from src.adapters.secondary.database.models import UserPermission, Permission
 from src.adapters.primary.rest_api.serializers import (
     UserPermissionSerializer, UserPermissionCreateSerializer
@@ -50,7 +51,7 @@ User = get_user_model()
         tags=["Permisos de Usuario"]
     ),
 )
-class UserPermissionViewSet(viewsets.ModelViewSet):
+class UserPermissionViewSet(DisableAuthenticationMixin, viewsets.ModelViewSet):
     """
     ViewSet para gestión de permisos específicos de usuario (overrides).
     

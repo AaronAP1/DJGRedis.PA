@@ -647,7 +647,8 @@ class CompanyListSerializer(serializers.ModelSerializer):
         model = Company
         fields = [
             'id', 'ruc', 'razon_social', 'nombre_comercial', 'nombre_para_mostrar',
-            'sector_economico', 'tamaño_empresa', 'status', 'puede_recibir_practicantes',
+            'sector_economico', 'tamaño_empresa', 'grado_academico', 'cargo_academico',
+            'status', 'puede_recibir_practicantes',
             'total_supervisors', 'total_practices', 'fecha_registro'
         ]
         read_only_fields = ['id', 'fecha_registro']
@@ -679,6 +680,7 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'ruc', 'razon_social', 'nombre_comercial', 'nombre_para_mostrar',
             'direccion', 'telefono', 'email', 'sector_economico', 'tamaño_empresa',
+            'grado_academico', 'cargo_academico',
             'status', 'fecha_validacion', 'puede_recibir_practicantes',
             'total_supervisors', 'total_practices', 'active_practices',
             'completed_practices', 'fecha_registro'
@@ -708,7 +710,8 @@ class CompanyCreateSerializer(serializers.ModelSerializer):
         model = Company
         fields = [
             'ruc', 'razon_social', 'nombre_comercial', 'direccion',
-            'telefono', 'email', 'sector_economico', 'tamaño_empresa'
+            'telefono', 'email', 'sector_economico', 'tamaño_empresa',
+            'grado_academico', 'cargo_academico'
         ]
     
     def validate_ruc(self, value):
@@ -742,7 +745,8 @@ class CompanyUpdateSerializer(serializers.ModelSerializer):
         model = Company
         fields = [
             'razon_social', 'nombre_comercial', 'direccion',
-            'telefono', 'email', 'sector_economico', 'tamaño_empresa'
+            'telefono', 'email', 'sector_economico', 'tamaño_empresa',
+            'grado_academico', 'cargo_academico'
         ]
     
     def validate_email(self, value):

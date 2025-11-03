@@ -38,6 +38,8 @@ class CompanyListSerializer(serializers.ModelSerializer):
             'telefono',
             'correo',
             'sector_economico',
+            'grado_academico',
+            'cargo_academico',
             'estado'
         ]
 
@@ -61,6 +63,8 @@ class CompanyCreateSerializer(serializers.ModelSerializer):
             'sitio_web',
             'sector_economico',
             'tamaño_empresa',
+            'grado_academico',
+            'cargo_academico',
         ]
     
     def validate_ruc(self, value):
