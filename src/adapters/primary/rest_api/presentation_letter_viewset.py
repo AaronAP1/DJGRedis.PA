@@ -46,20 +46,16 @@ class PresentationLetterRequestViewSet(viewsets.ModelViewSet):
     """
     
     queryset = PresentationLetterRequest.objects.select_related(
-        'student',
-        'student__usuario',
-        'student__escuela',
         'escuela',
         'empresa',
         'assigned_secretary',
-        'letter_document'
     ).all()
     
     permission_classes = [AllowAny]  # Permitir acceso sin autenticación
     http_method_names = ['get', 'post', 'put', 'patch', 'delete']
     
     filterset_fields = ['status', 'student__codigo_estudiante']
-    search_fields = ['student_code', 'student_full_name', 'company_name']
+    search_fields = ['student_code', 'student_full_name', 'escuela__nombre', 'empresa__nombre']
     ordering_fields = ['created_at', 'submitted_at', 'start_date']
     ordering = ['-created_at']
     

@@ -188,6 +188,8 @@ class PresentationLetterRequestListSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student_full_name', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     secretary_name = serializers.SerializerMethodField()
+    escuela_nombre = serializers.CharField(source='escuela.nombre', read_only=True, allow_null=True)
+    empresa_nombre = serializers.CharField(source='empresa.nombre', read_only=True, allow_null=True)
     
     class Meta:
         model = PresentationLetterRequest
@@ -195,7 +197,8 @@ class PresentationLetterRequestListSerializer(serializers.ModelSerializer):
             'id',
             'student_code',
             'student_name',
-            'company_name',
+            'escuela_nombre',
+            'empresa_nombre',
             'practice_area',
             'start_date',
             'status',
