@@ -278,6 +278,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8080",
     "http://localhost:4200",  # Angular frontend
     "http://127.0.0.1:4200",
+    "http://localhost:5173",      # ← AGREGA ESTO (Vite)
+    "http://127.0.0.1:5173",      # ← AGREGA ESTO
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -290,6 +292,8 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:8080",
     "http://localhost:4200",  # Angular frontend
     "http://127.0.0.1:4200",
+    "http://localhost:5173",      # ← AGREGA ESTO (Vite)
+    "http://127.0.0.1:5173",      # ← AGREGA ESTO
 ]
 
 # URLs Base

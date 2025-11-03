@@ -1721,7 +1721,32 @@ class PresentationLetterRequest(models.Model):
         blank=True,
         limit_choices_to={'rol_id__nombre': 'SECRETARIA'},
         related_name='assigned_letter_requests',
-        verbose_name='Secretaria Asignada'
+        verbose_name='Secretaria Asignada',
+        db_column='assigned_secretary_id'
+    )
+    
+    # NUEVO: Relación con Escuela Profesional
+    escuela = models.ForeignKey(
+        'School',
+        on_delete=models.PROTECT,
+        related_name='presentation_letters',
+        verbose_name='Escuela Profesional',
+        help_text='Escuela profesional del estudiante',
+        null=True,
+        blank=True,
+        db_column='escuela_id'
+    )
+    
+    # NUEVO: Relación con Empresa
+    empresa = models.ForeignKey(
+        'Company',
+        on_delete=models.PROTECT,
+        related_name='presentation_letters',
+        verbose_name='Empresa',
+        help_text='Empresa donde realizará la práctica (opcional)',
+        null=True,
+        blank=True,
+        db_column='empresa_id'
     )
     
     # ========================================================================
@@ -1731,7 +1756,8 @@ class PresentationLetterRequest(models.Model):
     ep = models.CharField(
         'E.P. (Escuela Profesional)',
         max_length=200,
-        help_text='Ejemplo: Ingeniería de Sistemas'
+        help_text='Auto-rellenado desde escuela.nombre',
+        blank=True
     )
     
     student_full_name = models.CharField(
@@ -1768,13 +1794,14 @@ class PresentationLetterRequest(models.Model):
     company_name = models.CharField(
         'Nombre de la Empresa',
         max_length=255,
-        help_text='Razón social de la empresa'
+        help_text='Auto-rellenado desde empresa.nombre si se selecciona empresa',
+        blank=True
     )
     
     company_representative = models.CharField(
         'Nombre del Representante',
         max_length=200,
-        help_text='Persona de contacto en la empresa'
+        help_text='Persona de contacto específica para esta solicitud'
     )
     
     company_position = models.CharField(
@@ -1785,11 +1812,14 @@ class PresentationLetterRequest(models.Model):
     
     company_phone = models.CharField(
         'Teléfono - Fax',
-        max_length=50
+        max_length=50,
+        help_text='Teléfono de contacto (puede ser diferente al de la empresa)'
     )
     
     company_address = models.TextField(
-        'Dirección de la Empresa'
+        'Dirección de la Empresa',
+        help_text='Auto-rellenado desde empresa.direccion si se selecciona empresa',
+        blank=True
     )
     
     practice_area = models.CharField(
@@ -1902,10 +1932,26 @@ class PresentationLetterRequest(models.Model):
                 self.student_full_name = f"{self.student.usuario.nombres} {self.student.usuario.apellidos}"
                 self.student_code = self.student.codigo
                 self.student_email = self.student.usuario.correo
-                if self.student.escuela:
-                    self.ep = self.student.escuela.nombre
+                
+                # Auto-asignar escuela desde el perfil del estudiante
+                if self.student.escuela and not self.escuela_id:
+                    self.escuela = self.student.escuela
+                
+                # Auto-rellenar nombre de escuela
+                if self.escuela:
+                    self.ep = self.escuela.nombre
             except (AttributeError, self.student.RelatedObjectDoesNotExist):
                 # Si hay algún problema accediendo a los datos del estudiante, continuar
+                pass
+        
+        # Auto-rellenar datos de la empresa si se seleccionó una
+        if self.empresa_id:
+            try:
+                if not self.company_name:
+                    self.company_name = self.empresa.nombre
+                if not self.company_address:
+                    self.company_address = self.empresa.direccion or ''
+            except (AttributeError, self.empresa.RelatedObjectDoesNotExist):
                 pass
         
         super().save(*args, **kwargs)

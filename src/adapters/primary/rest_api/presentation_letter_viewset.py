@@ -49,6 +49,8 @@ class PresentationLetterRequestViewSet(viewsets.ModelViewSet):
         'student',
         'student__usuario',
         'student__escuela',
+        'escuela',
+        'empresa',
         'assigned_secretary',
         'letter_document'
     ).all()

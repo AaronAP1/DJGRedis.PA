@@ -40,6 +40,9 @@ from src.adapters.primary.rest_api.views.reports import ReportsViewSet
 # Presentation Letter ViewSet (Nuevo - Carta de Presentación)
 from src.adapters.primary.rest_api.presentation_letter_viewset import PresentationLetterRequestViewSet
 
+# NOTA: Los endpoints de School y Company ya están registrados arriba
+# No necesitamos importar school_company_viewsets porque usamos los existentes
+
 
 # ============================================================================
 # ROUTER CONFIGURATION

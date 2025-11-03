@@ -3,7 +3,12 @@ Serializers para Solicitud de Carta de Presentación.
 """
 
 from rest_framework import serializers
-from src.adapters.secondary.database.models import PresentationLetterRequest, StudentProfile
+from src.adapters.secondary.database.models import (
+    PresentationLetterRequest, 
+    StudentProfile,
+    School,
+    Company
+)
 
 
 class PresentationLetterRequestCreateSerializer(serializers.ModelSerializer):
@@ -11,6 +16,7 @@ class PresentationLetterRequestCreateSerializer(serializers.ModelSerializer):
     Serializer para crear/actualizar solicitud de carta de presentación.
     
     Los datos del estudiante se auto-rellenan desde el usuario autenticado.
+    Permite seleccionar escuela y empresa existentes mediante IDs.
     """
     
     # Campos de solo lectura (auto-rellenados)
@@ -18,12 +24,34 @@ class PresentationLetterRequestCreateSerializer(serializers.ModelSerializer):
     student_code = serializers.CharField(read_only=True)
     student_email = serializers.CharField(read_only=True)
     ep = serializers.CharField(read_only=True)
+    company_name = serializers.CharField(read_only=True, allow_blank=True, required=False)
+    company_address = serializers.CharField(read_only=True, allow_blank=True, required=False)
     status = serializers.CharField(read_only=True)
+    
+    # NUEVOS: IDs para relaciones (opcionales)
+    escuela_id = serializers.PrimaryKeyRelatedField(
+        queryset=School.objects.filter(estado='ACTIVO'),
+        source='escuela',
+        required=False,
+        allow_null=True,
+        help_text='ID de la escuela profesional (auto-seleccionada desde perfil)'
+    )
+    
+    empresa_id = serializers.PrimaryKeyRelatedField(
+        queryset=Company.objects.filter(estado='ACTIVO'),
+        source='empresa',
+        required=False,
+        allow_null=True,
+        help_text='ID de la empresa (opcional - si ya existe en el sistema)'
+    )
     
     class Meta:
         model = PresentationLetterRequest
         fields = [
             'id',
+            # NUEVOS: Relaciones
+            'escuela_id',
+            'empresa_id',
             # Datos del estudiante (auto-rellenados)
             'ep',
             'student_full_name',
@@ -32,7 +60,7 @@ class PresentationLetterRequestCreateSerializer(serializers.ModelSerializer):
             # Datos ingresados por el estudiante
             'year_of_study',
             'study_cycle',
-            # Datos de la empresa
+            # Datos de la empresa (algunos auto-rellenados si hay empresa_id)
             'company_name',
             'company_representative',
             'company_position',
@@ -51,6 +79,8 @@ class PresentationLetterRequestCreateSerializer(serializers.ModelSerializer):
             'student_full_name',
             'student_code',
             'student_email',
+            'company_name',
+            'company_address',
             'status',
             'created_at',
             'updated_at',
@@ -90,6 +120,12 @@ class PresentationLetterRequestCreateSerializer(serializers.ModelSerializer):
                 'start_date': 'La fecha de inicio no puede ser en el pasado'
             })
         
+        # Si no se proporciona empresa_id, validar que se proporcionen datos manuales
+        if not attrs.get('empresa') and not self.initial_data.get('company_name'):
+            raise serializers.ValidationError({
+                'empresa_id': 'Debe seleccionar una empresa existente o proporcionar company_name manualmente'
+            })
+        
         return attrs
     
     def to_representation(self, instance):
@@ -113,6 +149,8 @@ class PresentationLetterRequestDetailSerializer(serializers.ModelSerializer):
     
     # Usar SerializerMethodField para evitar importaciones circulares
     student_info = serializers.SerializerMethodField()
+    escuela_info = serializers.SerializerMethodField()
+    empresa_info = serializers.SerializerMethodField()
     secretary_info = serializers.SerializerMethodField()
     letter_document_url = serializers.SerializerMethodField()
     
@@ -129,6 +167,31 @@ class PresentationLetterRequestDetailSerializer(serializers.ModelSerializer):
                 'nombres': obj.student.usuario.nombres,
                 'apellidos': obj.student.usuario.apellidos,
                 'email': obj.student.usuario.correo,
+            }
+        return None
+    
+    def get_escuela_info(self, obj):
+        """Retorna información de la escuela profesional."""
+        if obj.escuela:
+            return {
+                'id': obj.escuela.id,
+                'nombre': obj.escuela.nombre,
+                'codigo': obj.escuela.codigo,
+            }
+        return None
+    
+    def get_empresa_info(self, obj):
+        """Retorna información de la empresa."""
+        if obj.empresa:
+            return {
+                'id': obj.empresa.id,
+                'nombre': obj.empresa.nombre,
+                'ruc': obj.empresa.ruc,
+                'razon_social': obj.empresa.razon_social,
+                'direccion': obj.empresa.direccion,
+                'telefono': obj.empresa.telefono,
+                'correo': obj.empresa.correo,
+                'sector_economico': obj.empresa.sector_economico,
             }
         return None
     
