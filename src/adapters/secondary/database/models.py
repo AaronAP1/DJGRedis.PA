@@ -1756,15 +1756,8 @@ class PresentationLetterRequest(models.Model):
     )
     
     # ========================================================================
-    # DATOS DEL ESTUDIANTE (desnormalizados para el PDF)
+    # DATOS DEL ESTUDIANTE
     # ========================================================================
-    
-    ep = models.CharField(
-        'E.P. (Escuela Profesional)',
-        max_length=200,
-        help_text='Auto-rellenado desde escuela.nombre',
-        blank=True
-    )
     
     student_full_name = models.CharField(
         'Nombre Completo del Alumno',
@@ -1797,13 +1790,6 @@ class PresentationLetterRequest(models.Model):
     # DATOS DE LA EMPRESA
     # ========================================================================
     
-    company_name = models.CharField(
-        'Nombre de la Empresa',
-        max_length=255,
-        help_text='Auto-rellenado desde empresa.nombre si se selecciona empresa',
-        blank=True
-    )
-    
     company_representative = models.CharField(
         'Nombre del Representante',
         max_length=200,
@@ -1820,12 +1806,6 @@ class PresentationLetterRequest(models.Model):
         'Teléfono - Fax',
         max_length=50,
         help_text='Teléfono de contacto (puede ser diferente al de la empresa)'
-    )
-    
-    company_address = models.TextField(
-        'Dirección de la Empresa',
-        help_text='Auto-rellenado desde empresa.direccion si se selecciona empresa',
-        blank=True
     )
     
     practice_area = models.CharField(
@@ -1931,33 +1911,15 @@ class PresentationLetterRequest(models.Model):
         return self.status == 'APPROVED' and not self.letter_document
     
     def save(self, *args, **kwargs):
-        """Auto-rellenar datos del estudiante al crear."""
-        # Verificar si tiene student_id en lugar de acceder directamente a student
-        if not self.pk and self.student_id:  # Solo al crear y si hay student_id
+        """Auto-asignar escuela desde el perfil del estudiante al crear."""
+        # Solo al crear y si hay student_id
+        if not self.pk and self.student_id:
             try:
-                self.student_full_name = f"{self.student.usuario.nombres} {self.student.usuario.apellidos}"
-                self.student_code = self.student.codigo
-                self.student_email = self.student.usuario.correo
-                
                 # Auto-asignar escuela desde el perfil del estudiante
                 if self.student.escuela and not self.escuela_id:
                     self.escuela = self.student.escuela
-                
-                # Auto-rellenar nombre de escuela
-                if self.escuela:
-                    self.ep = self.escuela.nombre
             except (AttributeError, self.student.RelatedObjectDoesNotExist):
                 # Si hay algún problema accediendo a los datos del estudiante, continuar
-                pass
-        
-        # Auto-rellenar datos de la empresa si se seleccionó una
-        if self.empresa_id:
-            try:
-                if not self.company_name:
-                    self.company_name = self.empresa.nombre
-                if not self.company_address:
-                    self.company_address = self.empresa.direccion or ''
-            except (AttributeError, self.empresa.RelatedObjectDoesNotExist):
                 pass
         
         super().save(*args, **kwargs)

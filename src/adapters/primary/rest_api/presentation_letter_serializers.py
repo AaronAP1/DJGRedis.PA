@@ -19,53 +19,41 @@ class PresentationLetterRequestCreateSerializer(serializers.ModelSerializer):
     Permite seleccionar escuela y empresa existentes mediante IDs.
     """
     
-    # Campos de solo lectura (auto-rellenados)
-    student_full_name = serializers.CharField(read_only=True)
-    student_code = serializers.CharField(read_only=True)
-    student_email = serializers.CharField(read_only=True)
-    ep = serializers.CharField(read_only=True)
-    company_name = serializers.CharField(read_only=True, allow_blank=True, required=False)
-    company_address = serializers.CharField(read_only=True, allow_blank=True, required=False)
+    # Campos de solo lectura
     status = serializers.CharField(read_only=True)
     
-    # NUEVOS: IDs para relaciones (opcionales)
+    # NUEVOS: IDs para relaciones
     escuela_id = serializers.PrimaryKeyRelatedField(
         queryset=School.objects.filter(estado='ACTIVO'),
         source='escuela',
-        required=False,
-        allow_null=True,
-        help_text='ID de la escuela profesional (auto-seleccionada desde perfil)'
+        required=True,
+        help_text='ID de la escuela profesional'
     )
     
     empresa_id = serializers.PrimaryKeyRelatedField(
         queryset=Company.objects.filter(estado='ACTIVO'),
         source='empresa',
-        required=False,
-        allow_null=True,
-        help_text='ID de la empresa (opcional - si ya existe en el sistema)'
+        required=True,
+        help_text='ID de la empresa'
     )
     
     class Meta:
         model = PresentationLetterRequest
         fields = [
             'id',
-            # NUEVOS: Relaciones
+            # Relaciones
             'escuela_id',
             'empresa_id',
-            # Datos del estudiante (auto-rellenados)
-            'ep',
+            # Datos del estudiante
             'student_full_name',
             'student_code',
             'student_email',
-            # Datos ingresados por el estudiante
             'year_of_study',
             'study_cycle',
-            # Datos de la empresa (algunos auto-rellenados si hay empresa_id)
-            'company_name',
+            # Datos de la empresa
             'company_representative',
             'company_position',
             'company_phone',
-            'company_address',
             'practice_area',
             'start_date',
             # Metadatos
@@ -75,12 +63,6 @@ class PresentationLetterRequestCreateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id',
-            'ep',
-            'student_full_name',
-            'student_code',
-            'student_email',
-            'company_name',
-            'company_address',
             'status',
             'created_at',
             'updated_at',
@@ -127,21 +109,6 @@ class PresentationLetterRequestCreateSerializer(serializers.ModelSerializer):
             })
         
         return attrs
-    
-    def to_representation(self, instance):
-        """
-        Sobrescribir para manejar casos donde no hay student asignado.
-        """
-        representation = super().to_representation(instance)
-        
-        # Si no hay student, establecer valores por defecto para campos relacionados
-        if not hasattr(instance, 'student') or instance.student is None:
-            representation['ep'] = None
-            representation['student_full_name'] = None
-            representation['student_code'] = None
-            representation['student_email'] = None
-        
-        return representation
 
 
 class PresentationLetterRequestDetailSerializer(serializers.ModelSerializer):
