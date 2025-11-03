@@ -127,14 +127,17 @@ class PresentationLetterRequestDetailSerializer(serializers.ModelSerializer):
     
     def get_student_info(self, obj):
         """Retorna información básica del estudiante."""
-        if obj.student:
-            return {
-                'id': obj.student.id,
-                'codigo': obj.student.codigo,
-                'nombres': obj.student.usuario.nombres,
-                'apellidos': obj.student.usuario.apellidos,
-                'email': obj.student.usuario.correo,
-            }
+        if obj.student_id:
+            try:
+                return {
+                    'id': obj.student.id,
+                    'codigo': obj.student.codigo,
+                    'nombres': obj.student.usuario.nombres,
+                    'apellidos': obj.student.usuario.apellidos,
+                    'email': obj.student.usuario.correo,
+                }
+            except:
+                return None
         return None
     
     def get_escuela_info(self, obj):
